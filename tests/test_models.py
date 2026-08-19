@@ -26,6 +26,7 @@ def test_create_all_tables():
     assert tables == {
         "chapters", "sections", "subsections", "problem_types",
         "concepts", "problem_concepts", "sources", "problems",
+        "students", "attempts",
     }
 
 

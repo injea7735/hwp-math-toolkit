@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import datetime
 from sqlalchemy import (
     create_engine, ForeignKey, String, Text, Integer, Float, DateTime,
-    Table, Column, UniqueConstraint
+    Boolean, Table, Column, UniqueConstraint
 )
 from sqlalchemy.orm import (
     DeclarativeBase, Mapped, mapped_column, relationship
@@ -152,6 +152,35 @@ class Problem(Base):
     problem_type: Mapped["ProblemType"] = relationship(back_populates="problems")
     source: Mapped["Source | None"] = relationship(back_populates="problems")
     concepts: Mapped[list["Concept"]] = relationship(secondary=problem_concepts)
+    attempts: Mapped[list["Attempt"]] = relationship(back_populates="problem")
+
+
+# ---------------------------------------------------------------------------
+# 학습데이터: 학생이 어떤 문제를 언제 풀어서 맞았는지/틀렸는지 기록
+# -> 유형별 정답률을 계산해 취약 유형을 뽑아내는 데 쓰인다 (recommend.py)
+# ---------------------------------------------------------------------------
+
+class Student(Base):
+    __tablename__ = "students"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(100))
+
+    attempts: Mapped[list["Attempt"]] = relationship(back_populates="student")
+
+
+class Attempt(Base):
+    """학생의 문제 풀이 시도 1건."""
+    __tablename__ = "attempts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    student_id: Mapped[int] = mapped_column(ForeignKey("students.id"))
+    problem_id: Mapped[int] = mapped_column(ForeignKey("problems.id"))
+    is_correct: Mapped[bool] = mapped_column(Boolean)
+    answered_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    student: Mapped["Student"] = relationship(back_populates="attempts")
+    problem: Mapped["Problem"] = relationship(back_populates="attempts")
 
 
 # ---------------------------------------------------------------------------
