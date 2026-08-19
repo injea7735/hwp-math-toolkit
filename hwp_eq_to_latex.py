@@ -26,11 +26,11 @@ SYMBOL_MAP = {
 }
 
 KEYWORDS = ['LEFT', 'RIGHT', 'left', 'right', 'sqrt', 'bar', 'rm', 'it',
-            'over', 'dsty', 'tsty'] + list(SYMBOL_MAP.keys())
+            'over', 'dsty', 'tsty', 'matrix', 'pile'] + list(SYMBOL_MAP.keys())
 KEYWORD_PATTERN = r'\b(?:' + '|'.join(sorted(KEYWORDS, key=len, reverse=True)) + r')\b'
 
 TOKEN_REGEX = re.compile(
-    KEYWORD_PATTERN + r'|[{}()^_]|`|[A-Za-z]+|[0-9]+(?:\.[0-9]+)?|\S'
+    KEYWORD_PATTERN + r'|[{}()^_#&]|`|[A-Za-z]+|[0-9]+(?:\.[0-9]+)?|\S'
 )
 
 def tokenize(script: str):
@@ -96,6 +96,24 @@ class Parser:
 
         return ' '.join(a for a in atoms if a != '')
 
+    def parse_matrix_rows(self, split_columns: bool):
+        """matrix{}/pile{} 내부를 '#'(행 구분)과, matrix의 경우 '&'(열 구분) 기준으로 나눈다."""
+        rows = []
+        while True:
+            if split_columns:
+                cells = [self.parse_sequence({'&', '#', '}'})]
+                while self.peek() == '&':
+                    self.next()
+                    cells.append(self.parse_sequence({'&', '#', '}'}))
+                rows.append(cells)
+            else:
+                rows.append([self.parse_sequence({'#', '}'})])
+            if self.peek() == '#':
+                self.next()
+                continue
+            break
+        return rows
+
     def parse_atom(self):
         t = self.peek()
 
@@ -147,6 +165,16 @@ class Parser:
             if m:
                 return r'\overline{' + m.group(1) + '}'
             return r'\mathrm{' + inner + '}'
+
+        if t in ('matrix', 'pile'):
+            is_matrix = (t == 'matrix')
+            self.next()
+            self.expect('{')
+            rows = self.parse_matrix_rows(split_columns=is_matrix)
+            self.expect('}')
+            latex_rows = [' & '.join(cells) for cells in rows]
+            body = r' \\ '.join(latex_rows)
+            return r'\begin{matrix}' + body + r'\end{matrix}'
 
         if t in ('LEFT', 'left'):
             self.next()
