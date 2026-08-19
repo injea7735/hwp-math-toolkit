@@ -1,0 +1,17 @@
+# Large personal/binary artifacts (not source code)
+*.zip
+*.exe
+NGD문제은행_v1.4/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+
+# DB
+*.db
+
+# OS
+.DS_Store
+Thumbs.db
