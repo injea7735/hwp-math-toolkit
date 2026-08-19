@@ -37,3 +37,28 @@ def test_therefore_symbol():
 def test_rm_with_it_suffix():
     result = hwp_eq_to_latex("{rm{A}it} left(t,``-2 right)`")
     assert result == r"{\mathrm{A}} \left(t , \, \, - 2\right) \,"
+
+
+def test_matrix_rows_and_columns():
+    assert hwp_eq_to_latex("matrix{a & b # c & d}") == (
+        r"\begin{matrix}a & b \\ c & d\end{matrix}"
+    )
+
+
+def test_pile_stacks_rows_without_columns():
+    result = hwp_eq_to_latex("LEFT { pile{x+y=1 # x-y=2} RIGHT .")
+    assert result == (
+        r"\left{\begin{matrix}x + y = 1 \\ x - y = 2\end{matrix}\right."
+    )
+
+
+def test_sum_with_sub_and_superscript_bounds():
+    assert hwp_eq_to_latex("sum_{i=1}^{n} a_i") == r"\sum_{i = 1}^{n} a_{i}"
+
+
+def test_integral_with_bounds():
+    assert hwp_eq_to_latex("int_{a}^{b} f(x) dx") == r"\int_{a}^{b} f ( x ) dx"
+
+
+def test_limit_with_bound():
+    assert hwp_eq_to_latex("lim_{x to 0} f(x)") == r"\lim_{x \to 0} f ( x )"
