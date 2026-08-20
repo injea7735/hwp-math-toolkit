@@ -146,6 +146,11 @@ class Problem(Base):
     original_file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     # 네이버 BOX 동기화 폴더 기준 상대경로 등 원본 파일 위치 추적용
 
+    image_paths: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON 배열 문자열 (문제 삽화 파일 경로들)
+
+    ngd_problem_id: Mapped[int | None] = mapped_column(Integer, unique=True, nullable=True)
+    # NGD 문제은행(exam.db)에서 가져온 문제의 원본 problems.id. 재수입 시 중복 방지용 키.
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
