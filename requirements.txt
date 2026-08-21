@@ -1,2 +1,6 @@
 SQLAlchemy>=2.0
 pytest>=7.0
+olefile>=0.47
+lxml>=6.0
+pyhwp>=0.1b15
+six>=1.16
