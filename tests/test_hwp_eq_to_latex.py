@@ -23,6 +23,13 @@ def test_bar_over_rm_collapses_to_overline():
     assert hwp_eq_to_latex("{ bar{rm{AB}it}}") == r"{\overline{AB}}"
 
 
+def test_root_is_an_alias_for_sqrt():
+    # 실제 HWP 수식 편집기가 내보내는 근호 토큰은 sqrt가 아니라 root다.
+    assert hwp_eq_to_latex("=root{(t+1)^{2}+(t-1)^{2}}") == (
+        r"= \sqrt{( t + 1 )^{2} + ( t - 1 )^{2}}"
+    )
+
+
 def test_left_right_with_uppercase_keywords():
     result = hwp_eq_to_latex(
         "= LEFT ( 1-2t RIGHT ) ^{2} + LEFT ( -4t-3 RIGHT ) ^{2}"

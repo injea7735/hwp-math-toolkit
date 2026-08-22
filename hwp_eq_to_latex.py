@@ -25,7 +25,7 @@ SYMBOL_MAP = {
     'ANGLE': r'\angle', 'DEG': r'^\circ',
 }
 
-KEYWORDS = ['LEFT', 'RIGHT', 'left', 'right', 'sqrt', 'bar', 'rm', 'it',
+KEYWORDS = ['LEFT', 'RIGHT', 'left', 'right', 'sqrt', 'root', 'bar', 'rm', 'it',
             'over', 'dsty', 'tsty', 'matrix', 'pile'] + list(SYMBOL_MAP.keys())
 KEYWORD_PATTERN = r'\b(?:' + '|'.join(sorted(KEYWORDS, key=len, reverse=True)) + r')\b'
 
@@ -123,7 +123,7 @@ class Parser:
             self.expect('}')
             return '{' + inner + '}'
 
-        if t == 'sqrt':
+        if t in ('sqrt', 'root'):
             self.next()
             if self.peek() == '{':
                 self.next()
