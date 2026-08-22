@@ -24,6 +24,8 @@ import olefile
 from lxml import etree
 from hwp5.xmlmodel import Hwp5File
 
+from hwp_eq_to_latex import hwp_eq_to_latex
+
 HWPTAG_CTRL_EQEDIT = 88
 
 _TYPE_NO_RE = re.compile(r'^\d{1,2}$')
@@ -34,6 +36,15 @@ class TypeSection:
     no: str
     title: str
     problem_count: int = 0
+
+
+@dataclass
+class Problem:
+    type_no: str
+    type_title: str
+    seq: int          # 유형 안에서 몇 번째 문제인지(1부터)
+    answer: str        # "정답" 옆에 바로 나오는 값/기호
+    stem: str          # 문제 본문. 수식은 $...$ 로 감싼 LaTeX로 들어간다.
 
 
 @dataclass
@@ -143,6 +154,103 @@ def extract_equation_scripts(path: str) -> list[str]:
             if script is not None:
                 scripts.append(script)
     return scripts
+
+
+def extract_problems(path: str) -> list[Problem]:
+    """유형별 문제 본문을 수식 포함해서 재구성한다.
+
+    한 문제는 본문 흐름에서 다음 패턴으로 나타난다:
+      AutoNumbering(번호) -> "정답" + 답 -> 문단 끝(\\r) -> 문제 지문
+      (Text/EqEdit이 섞여 나옴) -> ... -> 다음 AutoNumbering
+    수식(EqEdit)은 원본 레코드 스트림에서 등장 순서대로 미리 뽑아 둔 뒤,
+    XML 트리를 훑으면서 EqEdit 자리가 나올 때마다 하나씩 꺼내 LaTeX로
+    바꿔 그 자리에 $...$ 로 끼워 넣는다. 두 추출 방식 모두 같은 레코드
+    스트림을 순서대로 훑으므로 EqEdit 등장 순서가 서로 맞아떨어진다.
+    """
+    root = _xml_root(path)
+    equations = iter(extract_equation_scripts(path))
+
+    def next_latex() -> str:
+        script = next(equations, None)
+        if script is None:
+            return ''
+        try:
+            return hwp_eq_to_latex(script)
+        except Exception:
+            return script  # 변환 실패 시 원본 스크립트라도 남긴다
+
+    problems: list[Problem] = []
+    seen_nos: set[str] = set()
+    current_type: tuple[str, str] | None = None  # (no, title)
+    type_seq = 0
+
+    cur_no: str | None = None
+    in_answer_zone = False
+    answer_parts: list[str] = []
+    stem_parts: list[str] = []
+
+    def flush():
+        nonlocal cur_no, answer_parts, stem_parts
+        if cur_no is not None and current_type is not None:
+            problems.append(Problem(
+                type_no=current_type[0],
+                type_title=current_type[1],
+                seq=type_seq,
+                answer=''.join(answer_parts).strip(),
+                stem=''.join(stem_parts).strip(),
+            ))
+        cur_no = None
+        answer_parts = []
+        stem_parts = []
+
+    for el in root.iter():
+        tag = el.tag
+        if tag == 'GShapeObjectControl':
+            runs = [t.text for t in el.iter('Text') if t.text]
+            for t in el.iter('EqEdit'):
+                next_latex()  # 텍스트박스 안 수식도 큐에서 소비만 하고 버린다
+            if not runs:
+                continue
+            last = runs[-1].strip()
+            if _TYPE_NO_RE.match(last):
+                title = ''.join(runs[:-1]).strip()
+                if title and any('가' <= ch <= '힣' for ch in title):
+                    if last in seen_nos:
+                        flush()
+                        return problems  # 정답/해설 파트 시작 -> 종료
+                    seen_nos.add(last)
+                    flush()
+                    current_type = (last, title)
+                    type_seq = 0
+            continue
+
+        if _in_textbox(el):
+            continue
+
+        if tag == 'AutoNumbering':
+            flush()
+            type_seq += 1
+            cur_no = el.get('number') or str(type_seq)
+            in_answer_zone = True
+            continue
+
+        if tag == 'ControlChar' and el.get('name') == 'PARAGRAPH_BREAK':
+            if in_answer_zone:
+                in_answer_zone = False
+            continue
+
+        if cur_no is None:
+            continue
+
+        if tag == 'Text' and el.text:
+            (answer_parts if in_answer_zone else stem_parts).append(el.text)
+        elif tag == 'EqEdit':
+            latex = next_latex()
+            if latex:
+                (answer_parts if in_answer_zone else stem_parts).append(f'${latex}$')
+
+    flush()
+    return problems
 
 
 if __name__ == '__main__':
