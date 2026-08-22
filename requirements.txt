@@ -4,3 +4,4 @@ olefile>=0.47
 lxml>=6.0
 pyhwp>=0.1b15
 six>=1.16
+pymupdf>=1.24

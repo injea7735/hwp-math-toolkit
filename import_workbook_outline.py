@@ -15,7 +15,7 @@ from hwp_workbook_parse import extract_outline
 from models import Chapter, Section, SubSection, ProblemType, init_db
 
 
-def _get_or_create_chapter(session: Session, name: str) -> Chapter:
+def get_or_create_chapter(session: Session, name: str) -> Chapter:
     chapter = session.query(Chapter).filter_by(name=name).one_or_none()
     if chapter is None:
         chapter = Chapter(name=name, order=len(session.query(Chapter).all()))
@@ -24,7 +24,7 @@ def _get_or_create_chapter(session: Session, name: str) -> Chapter:
     return chapter
 
 
-def _get_or_create_section(session: Session, chapter: Chapter, name: str) -> Section:
+def get_or_create_section(session: Session, chapter: Chapter, name: str) -> Section:
     section = (
         session.query(Section)
         .filter_by(chapter_id=chapter.id, name=name)
@@ -37,7 +37,7 @@ def _get_or_create_section(session: Session, chapter: Chapter, name: str) -> Sec
     return section
 
 
-def _get_or_create_subsection(session: Session, section: Section, name: str) -> SubSection:
+def get_or_create_subsection(session: Session, section: Section, name: str) -> SubSection:
     subsection = (
         session.query(SubSection)
         .filter_by(section_id=section.id, name=name)
@@ -57,9 +57,9 @@ def import_outline_file(session: Session, subject: str, path: str, unit_title_ov
     if not unit_title:
         return 0
 
-    chapter = _get_or_create_chapter(session, subject)
-    section = _get_or_create_section(session, chapter, unit_title)
-    subsection = _get_or_create_subsection(session, section, unit_title)
+    chapter = get_or_create_chapter(session, subject)
+    section = get_or_create_section(session, chapter, unit_title)
+    subsection = get_or_create_subsection(session, section, unit_title)
 
     created = 0
     for t in outline.types:
