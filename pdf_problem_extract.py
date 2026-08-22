@@ -73,35 +73,33 @@ def _is_divider_page(page) -> bool:
     return False
 
 
-def _find_number_markers(page):
-    """페이지 안의 3자리 문제번호 마커를 (번호문자열, bbox, column) 리스트로 낸다.
+def _group_number_spans(candidates: list[dict], page_width: float):
+    """숫자 조각 span들을 마커별로 묶어 (번호문자열, bbox, column) 리스트로 낸다.
 
     번호는 "0으로 채워진 부분"과 "실제 숫자 부분"이 별도 span으로 쪼개져
     나온다. 조각 개수·자릿수가 번호 크기에 따라 다르다("00"+"1" -> 001,
     "0"+"13" -> 013, "0"+"46" -> 046 처럼) - 정확한 조합을 가정하지 않고,
-    같은 y좌표(같은 줄)에 있는 숫자 span들을 x좌표 순으로 모아 이어붙인다.
+    같은 열(column)·같은 y좌표(같은 줄)에 있는 숫자 span들을 x좌표 순으로
+    모아 이어붙인다. page.rect.width에 기대지 않고 순수 로직만 테스트할 수
+    있도록 page_width를 인자로 받는다.
     """
-    candidates = []
-    for s in _iter_spans(page):
-        if s['font'] != NUMBER_FONT or not (NUMBER_MIN_SIZE <= s['size'] <= NUMBER_MAX_SIZE):
-            continue
-        text = s['text'].strip()
-        if text and re.fullmatch(r'\d+', text):
-            candidates.append(s)
-
+    # 같은 줄(y좌표)이라도 2단 레이아웃에서는 왼쪽/오른쪽 열의 서로 다른
+    # 번호일 수 있다 - 열이 다르면 절대 같은 마커로 묶지 않는다(실제 자료에서
+    # "013"+"016"이 한 마커로 잘못 합쳐지는 버그가 있었다).
     groups: list[list] = []
     for s in candidates:
         y0 = s['bbox'][1]
+        column = 0 if s['bbox'][0] < page_width / 2 else 1
         placed = False
         for g in groups:
-            if abs(g[0]['bbox'][1] - y0) < 1.0:
+            g_column = 0 if g[0]['bbox'][0] < page_width / 2 else 1
+            if g_column == column and abs(g[0]['bbox'][1] - y0) < 1.0:
                 g.append(s)
                 placed = True
                 break
         if not placed:
             groups.append([s])
 
-    page_width = page.rect.width
     markers = []
     for g in groups:
         g.sort(key=lambda s: s['bbox'][0])
@@ -116,6 +114,18 @@ def _find_number_markers(page):
     # 왼쪽 열을 위->아래로 다 읽고, 오른쪽 열을 위->아래로 읽는 순서
     markers.sort(key=lambda m: (m[2], m[1][1]))
     return markers
+
+
+def _find_number_markers(page):
+    page_width = page.rect.width
+    candidates = []
+    for s in _iter_spans(page):
+        if s['font'] != NUMBER_FONT or not (NUMBER_MIN_SIZE <= s['size'] <= NUMBER_MAX_SIZE):
+            continue
+        text = s['text'].strip()
+        if text and re.fullmatch(r'\d+', text):
+            candidates.append(s)
+    return _group_number_spans(candidates, page_width)
 
 
 def extract_problems(pdf_path: str, out_dir: str, section_count: int, dpi: int = 200) -> list[ExtractedProblem]:
