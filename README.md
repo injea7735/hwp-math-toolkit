@@ -18,6 +18,12 @@
 pip install -r requirements.txt
 ```
 
+텍스트 레이어가 없는 스캔 PDF(`pdf_ocr_problem_extract.py`)를 다루려면 별도로
+[Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki) 설치가 추가로
+필요하다(pip으로 안 들어오는 시스템 프로그램). 한국어 인식을 쓰려면
+`tessdata_best` 저장소의 `kor.traineddata`를 받아서 tessdata 폴더에 넣어야
+한다(기본 `tessdata` 저장소 모델은 이 자료 폰트에서 정확도가 크게 떨어졌음).
+
 ## 사용 예시
 
 ```python

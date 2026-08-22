@@ -5,3 +5,6 @@ lxml>=6.0
 pyhwp>=0.1b15
 six>=1.16
 pymupdf>=1.24
+pytesseract>=0.3.13
+numpy>=1.26
+Pillow>=10.0
