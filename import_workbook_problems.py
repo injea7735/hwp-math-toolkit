@@ -12,6 +12,7 @@ hwp_workbook_parse.extract_problems()로 재구성한 문제를 models.Problem
 """
 from __future__ import annotations
 
+import json
 import re
 
 from sqlalchemy.orm import Session
@@ -19,13 +20,31 @@ from sqlalchemy.orm import Session
 from hwp_workbook_parse import extract_outline, extract_problems, Problem as ParsedProblem
 from models import Problem, ProblemType, init_db
 
+_CHOICE_MARKER_RE = re.compile(r'[①②③④⑤]')
+
 
 def guess_question_kind(answer: str) -> str:
     if '풀이 참조' in answer:
         return '서술형'
-    if re.search(r'[①②③④⑤]', answer):
+    if _CHOICE_MARKER_RE.search(answer):
         return '객관식'
     return '단답형'
+
+
+def split_choices(stem: str) -> tuple[str, list[str] | None]:
+    """지문 끝에 ①②③④⑤ 로 붙어 있는 객관식 보기를 분리한다.
+    보기가 2개 미만 발견되면(마커가 우연히 하나만 섞인 경우 등) 분리하지 않는다."""
+    markers = list(_CHOICE_MARKER_RE.finditer(stem))
+    if len(markers) < 2:
+        return stem, None
+
+    body = stem[:markers[0].start()].strip()
+    choices = []
+    for i, m in enumerate(markers):
+        start = m.end()
+        end = markers[i + 1].start() if i + 1 < len(markers) else len(stem)
+        choices.append(stem[start:end].strip())
+    return body, choices
 
 
 def insert_problems(
@@ -49,9 +68,11 @@ def insert_problems(
             skipped_no_type += 1
             continue
 
+        body, choices = split_choices(p.stem)
+
         exists = (
             session.query(Problem)
-            .filter_by(problem_type_id=ptype.id, stem_latex=p.stem)
+            .filter_by(problem_type_id=ptype.id, stem_latex=body)
             .one_or_none()
         )
         if exists is not None:
@@ -59,7 +80,8 @@ def insert_problems(
 
         session.add(Problem(
             problem_type_id=ptype.id,
-            stem_latex=p.stem,
+            stem_latex=body,
+            choices_latex=json.dumps(choices, ensure_ascii=False) if choices else None,
             answer=p.answer,
             question_kind=guess_question_kind(p.answer),
             original_file_path=source_path,
