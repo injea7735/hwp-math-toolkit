@@ -33,8 +33,27 @@ TOKEN_REGEX = re.compile(
     KEYWORD_PATTERN + r'|[{}()^_#&]|`|[A-Za-z]+|[0-9]+(?:\.[0-9]+)?|\S'
 )
 
+def _split_repeated_keyword(word: str):
+    """공백 없이 같은 키워드가 반복 붙은 토큰(예: 'cdotscdots')을 쪼갠다.
+    길이 3 미만 키워드(in, to, pi, le 등)는 평범한 변수명과 겹칠 수 있어 제외."""
+    for kw in SYMBOL_MAP:
+        if len(kw) < 3 or len(word) <= len(kw) or len(word) % len(kw) != 0:
+            continue
+        if word == kw * (len(word) // len(kw)):
+            return [kw] * (len(word) // len(kw))
+    return None
+
+
 def tokenize(script: str):
-    return [t for t in TOKEN_REGEX.findall(script)]
+    tokens = []
+    for t in TOKEN_REGEX.findall(script):
+        if t not in KEYWORDS and re.fullmatch(r'[A-Za-z]+', t):
+            split = _split_repeated_keyword(t)
+            if split:
+                tokens.extend(split)
+                continue
+        tokens.append(t)
+    return tokens
 
 
 class Parser:
@@ -56,13 +75,20 @@ class Parser:
             raise ValueError(f"'{tok}' 예상했지만 '{t}' 나옴 (위치 {self.pos})")
         return t
 
+    _DELIM_ESCAPE = {'{': r'\{', '}': r'\}'}
+
+    def _latex_delim(self, tok) -> str:
+        # LEFT/RIGHT 구분자로 '{'/'}' 가 오면 LaTeX에서 이스케이프해야 한다
+        # (\left{ 는 문법 오류, \left\{ 가 맞다).
+        return self._DELIM_ESCAPE.get(tok, str(tok))
+
     def strip_braces(self, s: str) -> str:
         s = s.strip()
         if s.startswith('{') and s.endswith('}'):
             return s[1:-1]
         return s
 
-    def parse_sequence(self, stop_tokens):
+    def parse_sequence(self, stop_tokens, sep=' '):
         atoms = []
         while self.peek() is not None and self.peek() not in stop_tokens:
             t = self.peek()
@@ -94,7 +120,7 @@ class Parser:
 
             atoms.append(self.parse_atom())
 
-        return ' '.join(a for a in atoms if a != '')
+        return sep.join(a for a in atoms if a != '')
 
     def parse_matrix_rows(self, split_columns: bool):
         """matrix{}/pile{} 내부를 '#'(행 구분)과, matrix의 경우 '&'(열 구분) 기준으로 나눈다."""
@@ -153,11 +179,11 @@ class Parser:
                 inner = self.parse_sequence({'}'})
                 self.expect('}')
             else:
-                # 중괄호 없는 형태: rm AB it  (다음 'it'/경계 전까지가 로만체 내용)
-                parts = []
-                while self.peek() not in ('it', '}', 'RIGHT', 'right', None):
-                    parts.append(self.next())
-                inner = ''.join(parts)
+                # 중괄호 없는 형태: rm AB it / rm bar{AB}  (다음 'it'/경계 전까지가
+                # 로만체 내용). parse_sequence()로 파싱해야 안의 bar/^/_ 같은
+                # 구성도 제대로 처리된다(raw 토큰을 그냥 이어붙이면 안 됨).
+                # sep=''인 이유: 로만체 텍스트는 원래 붙여 써야 한다(AB, m 등).
+                inner = self.parse_sequence({'it', '}', 'RIGHT', 'right'}, sep='')
             if self.peek() == 'it':
                 self.next()
             # rm{ bar AB } 처럼 내부가 이미 \bar{...}로 변환된 경우 -> \overline로 통일
@@ -178,11 +204,11 @@ class Parser:
 
         if t in ('LEFT', 'left'):
             self.next()
-            open_delim = self.next()
+            open_delim = self._latex_delim(self.next())
             inner = self.parse_sequence({'RIGHT', 'right'})
             self.next()
-            close_delim = self.next() or ')'
-            return r'\left' + str(open_delim) + inner + r'\right' + str(close_delim)
+            close_delim = self._latex_delim(self.next() or ')')
+            return r'\left' + open_delim + inner + r'\right' + close_delim
 
         if t == '`':
             self.next()
