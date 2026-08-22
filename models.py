@@ -86,6 +86,18 @@ class ProblemType(Base):
     problems: Mapped[list["Problem"]] = relationship(back_populates="problem_type")
 
 
+class DifficultyTier(Base):
+    """난이도 단계 (예: 핵심 유형 / 심화 유형 / 최고난도 유형).
+    일부 교재(대수·미적분Ⅰ·확률과 통계·미적분Ⅱ 유형서 PDF 등)는 문제를
+    주제별 유형이 아니라 이 난이도 단계로만 묶어서 제공한다. ProblemType과는
+    독립된 축이라 Problem이 둘 다(또는 하나만) 가질 수 있다."""
+    __tablename__ = "difficulty_tiers"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(50), unique=True)  # 예: "핵심 유형"
+    order: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class Concept(Base):
     """개념 태그 (예: 지수법칙, 로그의 성질, 절댓값 부등식 ...)
     문제 하나에 여러 개 매핑 가능 (다대다)."""
@@ -128,7 +140,10 @@ class Problem(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
 
-    problem_type_id: Mapped[int] = mapped_column(ForeignKey("problem_types.id"))
+    # 출처 교재가 주제별 유형 없이 난이도 단계로만 문제를 묶는 경우
+    # (예: PDF 유형서) 이 필드가 비어 있을 수 있다 -> difficulty_tier로 대신 분류.
+    problem_type_id: Mapped[int | None] = mapped_column(ForeignKey("problem_types.id"), nullable=True)
+    difficulty_tier_id: Mapped[int | None] = mapped_column(ForeignKey("difficulty_tiers.id"), nullable=True)
     source_id: Mapped[int | None] = mapped_column(ForeignKey("sources.id"), nullable=True)
 
     stem_latex: Mapped[str] = mapped_column(Text)          # 문제 지문 (LaTeX 수식 포함)
@@ -149,7 +164,8 @@ class Problem(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    problem_type: Mapped["ProblemType"] = relationship(back_populates="problems")
+    problem_type: Mapped["ProblemType | None"] = relationship(back_populates="problems")
+    difficulty_tier: Mapped["DifficultyTier | None"] = relationship()
     source: Mapped["Source | None"] = relationship(back_populates="problems")
     concepts: Mapped[list["Concept"]] = relationship(secondary=problem_concepts)
     attempts: Mapped[list["Attempt"]] = relationship(back_populates="problem")
