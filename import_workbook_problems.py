@@ -31,19 +31,37 @@ def guess_question_kind(answer: str) -> str:
     return '단답형'
 
 
+_CHOICE_ORDER = '①②③④⑤'
+
+
 def split_choices(stem: str) -> tuple[str, list[str] | None]:
-    """지문 끝에 ①②③④⑤ 로 붙어 있는 객관식 보기를 분리한다.
-    보기가 2개 미만 발견되면(마커가 우연히 하나만 섞인 경우 등) 분리하지 않는다."""
-    markers = list(_CHOICE_MARKER_RE.finditer(stem))
-    if len(markers) < 2:
+    """지문 끝에 ①②③④⑤ 로 붙어 있는 객관식 보기 5개를 분리한다.
+
+    풀이 설명 중간에 "①의 경우 ~, ②의 경우 ~"처럼 보기 번호를 다시 언급하는
+    문제가 실제 자료에 있어서, 그냥 첫 번째 마커부터 자르면 지문이 통째로
+    날아간다. 그래서 뒤에서부터 ⑤ -> ① 순서로 거슬러 올라가며 "마지막으로
+    등장하는, 순서가 맞는 5개짜리 블록"만 진짜 보기로 인정한다. 5개를 모두
+    못 찾거나 그 앞에 지문이 하나도 안 남으면 분리하지 않는다.
+    """
+    search_end = len(stem)
+    positions = {}
+    for ch in reversed(_CHOICE_ORDER):  # ⑤, ④, ③, ②, ① 순서로 거꾸로 탐색
+        idx = stem.rfind(ch, 0, search_end)
+        if idx == -1:
+            return stem, None
+        positions[ch] = idx
+        search_end = idx
+
+    start = positions[_CHOICE_ORDER[0]]
+    body = stem[:start].strip()
+    if not body:
         return stem, None
 
-    body = stem[:markers[0].start()].strip()
     choices = []
-    for i, m in enumerate(markers):
-        start = m.end()
-        end = markers[i + 1].start() if i + 1 < len(markers) else len(stem)
-        choices.append(stem[start:end].strip())
+    for i, ch in enumerate(_CHOICE_ORDER):
+        seg_start = positions[ch] + 1
+        seg_end = positions[_CHOICE_ORDER[i + 1]] if i + 1 < len(_CHOICE_ORDER) else len(stem)
+        choices.append(stem[seg_start:seg_end].strip())
     return body, choices
 
 

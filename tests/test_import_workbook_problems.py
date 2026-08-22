@@ -45,8 +45,28 @@ def test_split_choices_separates_body_from_options():
 
 
 def test_split_choices_leaves_non_choice_stem_untouched():
-    # 마커가 0~1개면(우연히 섞인 경우 포함) 객관식 보기로 보지 않는다.
+    # 마커가 하나도 없으면(또는 5개를 다 못 채우면) 객관식 보기로 보지 않는다.
     assert split_choices("서술형 문제, 정답을 구하시오.") == ("서술형 문제, 정답을 구하시오.", None)
+
+
+def test_split_choices_ignores_choice_labels_reused_in_solution_text():
+    # 풀이 설명에서 "①의 경우 ~, ②의 경우 ~"처럼 보기 번호를 다시 언급하는
+    # 문제가 실제 자료(집합 단원)에서 확인됨 - 첫 마커부터 자르면 지문이
+    # 통째로 사라진다. 맨 뒤의 진짜 보기 블록만 잘라야 한다.
+    stem = (
+        "풀이: ①인 경우와 ②인 경우를 나누어 생각하면 ...\n"
+        "다음 중 옳은 것은?① $1$② $2$③ $3$④ $4$⑤ $5$"
+    )
+    body, choices = split_choices(stem)
+    assert body.endswith("다음 중 옳은 것은?")
+    assert body.startswith("풀이: ①인 경우")
+    assert choices == ["$1$", "$2$", "$3$", "$4$", "$5$"]
+
+
+def test_split_choices_requires_all_five_markers():
+    # ①~④만 있고 ⑤가 없으면(진짜 보기 목록이 아니라는 신호) 분리하지 않는다.
+    stem = "① $1$② $2$③ $3$④ $4$"
+    assert split_choices(stem) == (stem, None)
 
 
 def test_insert_problems_creates_rows_linked_to_existing_type(session, ptype):

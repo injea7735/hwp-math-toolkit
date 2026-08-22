@@ -45,6 +45,48 @@ def test_glued_repeated_keyword_is_split():
     assert hwp_eq_to_latex("b=2a-3 cdotscdots") == r"b = 2 a - 3 \cdots \cdots"
 
 
+def test_missing_trailing_close_brace_is_tolerated():
+    # HWP 편집기가 스크립트 맨 끝의 '}' 를 저장하지 않는 경우가 실제 자료에서
+    # 확인됨(커서를 밖으로 옮기면 편집기 UI가 자동으로 닫아버리는 듯).
+    assert hwp_eq_to_latex("rm bar{AB}=root{10") == r"\overline{AB}=\sqrt{10}"
+
+
+def test_uppercase_keyword_variants_are_recognized():
+    # 실제 자료에서 CUP/IN/RM/OVER 처럼 명령어를 대문자로 쓴 경우가 확인됨.
+    assert hwp_eq_to_latex("A CUP B") == r"A \cup B"
+    assert hwp_eq_to_latex("x IN A") == r"x \in A"
+    assert hwp_eq_to_latex("RM AB") == r"\mathrm{AB}"
+    assert hwp_eq_to_latex("1 OVER 2") == r"\frac{1}{2}"
+
+
+def test_uppercase_two_letter_keyword_not_confused_with_variable():
+    # 짧은 키워드(to, pi, le 등)는 대문자로 나와도 그대로 변수명으로 남아야
+    # 한다 - PI, TO 같은 두 글자짜리는 실제 점 이름을 이은 선분명일 수 있다.
+    assert hwp_eq_to_latex("P TO Q") == r"P TO Q"
+
+
+def test_new_symbols_from_real_data():
+    assert hwp_eq_to_latex("A SMALLINTER B") == r"A \cap B"
+    assert hwp_eq_to_latex("A TRIANGLE B") == r"A \triangle B"
+    assert hwp_eq_to_latex("EMPTYSET") == r"\emptyset"
+    assert hwp_eq_to_latex("x NOT IN A") == r"x \not \in A"
+
+
+def test_glued_keyword_with_variable_suffix_is_split():
+    # 실제 자료에서 확인됨: 'smallunionB smallunionC', 'barAB' 처럼
+    # 키워드 바로 뒤에 변수명이 공백 없이 붙는 경우.
+    assert hwp_eq_to_latex("A smallunionB") == r"A \cup B"
+    assert hwp_eq_to_latex("barAB") == r"\bar{AB}"
+
+
+def test_other_structural_mismatches_still_raise():
+    # '}' 가 끝까지 안 나온 경우만 봐준다 - matrix/pile처럼 여는 괄호 자체가
+    # 없는 진짜 구조 오류는 여전히 에러여야 한다.
+    import pytest
+    with pytest.raises(ValueError):
+        hwp_eq_to_latex("matrix a#b")
+
+
 def test_left_right_with_uppercase_keywords():
     result = hwp_eq_to_latex(
         "= LEFT ( 1-2t RIGHT ) ^{2} + LEFT ( -4t-3 RIGHT ) ^{2}"
