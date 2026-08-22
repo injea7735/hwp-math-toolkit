@@ -74,7 +74,9 @@ def extract_outline(path: str) -> WorkbookOutline:
             last = runs[-1].strip()
             if _TYPE_NO_RE.match(last):
                 title = ''.join(runs[:-1]).strip()
-                if title and not any(ch.isdigit() for ch in title):
+                # 제목에 숫자가 섞여도 된다("미지수가 2개인 ...").
+                # 대신 한글이 하나도 없는 경우(수식 조각 등)는 제외한다.
+                if title and any('가' <= ch <= '힣' for ch in title):
                     if last in seen_nos:
                         # 문제 파트가 끝나고 정답/해설 파트가 같은 유형
                         # 제목을 반복하기 시작하는 지점 -> 여기서 멈춘다.
