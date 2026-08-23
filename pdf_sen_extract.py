@@ -36,9 +36,10 @@ os.environ.setdefault('TESSDATA_PREFIX', r'C:\Users\Ace\tessdata')
 
 DPI = 150
 
-# 파일명 순서 = 책 순서(RPM/수매씽으로 이미 검증됨). import_sen_daepyo_types.py의
-# FILE_TO_SUBSECTION과 같은 매핑을 여기서도 파일 열거 순서로 그대로 쓴다.
-SUBSECTION_ORDER = [
+# 과목마다 파일명 순서 = 책 순서(다른 출처로 이미 검증됨). 해당 과목의
+# import_sen_daepyo_types_*.py가 쓰는 FILE_TO_SUBSECTION과 같은 매핑을
+# 파일 열거 순서로 그대로 쓴다. extract_problems()에 인자로 넘긴다.
+MI2_SUBSECTION_ORDER = [
     ('수열의 극한', '수열의 극한'),
     ('수열의 극한', '급수'),
     ('미분법', '지수함수와 로그함수의 미분'),
@@ -49,6 +50,29 @@ SUBSECTION_ORDER = [
     ('적분법', '여러 가지 적분법'),
     ('적분법', '정적분'),
     ('적분법', '정적분의 활용'),
+]
+
+ALGEBRA_SUBSECTION_ORDER = [
+    ('지수함수와 로그함수', '지수'),
+    ('지수함수와 로그함수', '로그'),
+    ('지수함수와 로그함수', '지수함수'),
+    ('지수함수와 로그함수', '로그함수'),
+    ('삼각함수', '삼각함수'),
+    ('삼각함수', '삼각함수의 그래프'),
+    ('삼각함수', '삼각함수의 활용'),
+    ('수열', '등차수열과 등비수열'),
+    ('수열', '수열의 합'),
+    ('수열', '수학적 귀납법'),
+]
+
+PROBSTAT_SUBSECTION_ORDER = [
+    ('경우의 수', '여러 가지 순열'),
+    ('경우의 수', '중복조합과 이항정리'),
+    ('확률', '확률의 뜻과 활용'),
+    ('확률', '조건부확률'),
+    ('통계', '확률변수와 확률분포'),
+    ('통계', '이항분포와 정규분포'),
+    ('통계', '통계적 추정'),
 ]
 
 
@@ -70,26 +94,60 @@ def _page_array(page):
     return np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
 
 
-def _find_colored_boxes(arr):
-    r = arr[:, :, 0].astype(int); g = arr[:, :, 1].astype(int); b = arr[:, :, 2].astype(int)
-    mx = np.maximum(np.maximum(r, g), b); mn = np.minimum(np.minimum(r, g), b)
-    colorful = (mx - mn > 40) & (mx > 90)
-    labels, n = ndimage.label(colorful, structure=np.ones((3, 3)))
+def _boxes_from_mask(arr, mask, sat):
+    labels, n = ndimage.label(mask, structure=np.ones((3, 3)))
     boxes = []
-    for sl in ndimage.find_objects(labels):
+    for label_id, sl in enumerate(ndimage.find_objects(labels), start=1):
+        if sl is None:
+            continue
         y0, y1 = sl[0].start, sl[0].stop
         x0, x1 = sl[1].start, sl[1].stop
         w, h = x1 - x0, y1 - y0
         if h < 8 or w < 3:
             continue
-        cy, cx = (y0 + y1) // 2, (x0 + x1) // 2
-        boxes.append((x0, y0, w, h, tuple(int(v) for v in arr[cy, cx])))
+        # 가운데 픽셀 하나만 보면 안티에일리어싱/흰 배경과 섞인 픽셀을 우연히
+        # 골라 색이 옅게 나올 수 있다(예: 진짜 초록(78,167,123)이 흰 배경과
+        # 섞여 (152,205,202)처럼 잡힘) - 그 부품 안에서 채도가 가장 높은
+        # 픽셀(원색에 가장 가까운 지점)을 대표색으로 쓴다.
+        comp_mask = labels[y0:y1, x0:x1] == label_id
+        sub_sat = sat[y0:y1, x0:x1]
+        py, px = np.unravel_index(np.argmax(np.where(comp_mask, sub_sat, -1)), sub_sat.shape)
+        color = tuple(int(v) for v in arr[y0 + py, x0 + px])
+        boxes.append((x0, y0, w, h, color))
     return boxes
+
+
+def _find_colored_boxes(arr):
+    """숫자 조각 등 색 종류를 안 가리고 찾을 때 쓰는 범용 버전."""
+    r = arr[:, :, 0].astype(int); g = arr[:, :, 1].astype(int); b = arr[:, :, 2].astype(int)
+    mx = np.maximum(np.maximum(r, g), b); mn = np.minimum(np.minimum(r, g), b)
+    sat = mx - mn
+    colorful = (sat > 40) & (mx > 90)
+    return _boxes_from_mask(arr, colorful, sat)
+
+
+def _find_green_boxes(arr):
+    """유형 알약 전용. 초록 우세 픽셀만 라벨링해서, 옆에 붙은 금색 "개념" 표찰
+    같은 다른 색과 한 부품으로 뭉쳐 대표색이 오염되는 걸 애초에 막는다."""
+    r = arr[:, :, 0].astype(int); g = arr[:, :, 1].astype(int); b = arr[:, :, 2].astype(int)
+    mx = np.maximum(np.maximum(r, g), b); mn = np.minimum(np.minimum(r, g), b)
+    sat = mx - mn
+    greenish = (sat > 40) & (mx > 90) & (g > r) & (g >= b)
+    return _boxes_from_mask(arr, greenish, sat)
+
+
+def _find_red_boxes(arr):
+    """대표문제 알약 전용. 빨강/주황 우세 픽셀만 라벨링한다."""
+    r = arr[:, :, 0].astype(int); g = arr[:, :, 1].astype(int); b = arr[:, :, 2].astype(int)
+    mx = np.maximum(np.maximum(r, g), b); mn = np.minimum(np.minimum(r, g), b)
+    sat = mx - mn
+    reddish = (sat > 40) & (mx > 90) & (r > g) & (r > b)
+    return _boxes_from_mask(arr, reddish, sat)
 
 
 def _is_type_pill(box):
     x, y, w, h, (r, g, b) = box
-    return 50 <= w <= 80 and 26 <= h <= 42 and g > r + 40 and g > b + 12
+    return 50 <= w <= 80 and 26 <= h <= 42 and g > r + 25 and g > b + 12
 
 
 def _is_daepyo_pill(box):
@@ -132,6 +190,26 @@ def _cluster_digits(fragments):
     return groups
 
 
+def _resync_current_type(entries, current_type, daepyo_digits):
+    """대표문제 알약의 4자리 OCR로 유형 순번 드리프트를 자기 교정한다.
+
+    유형 알약 자체의 순번(2자리) OCR은 잡음이 많아서, 페이지 렌더링
+    문제로 진짜 유형 알약 하나를 통째로 못 찾으면(예: 색상 오검출) 내부
+    순번 카운터가 그 뒤로 계속 한 칸씩 밀린다 - 그 상태로도 각 유형의
+    문제 번호가 그럴듯하게 증가하기 때문에 조용히 넘어가기 쉽다. 반면
+    대표문제 번호(4자리) OCR은 훨씬 안정적으로 읽힌다. 지금 카운터가
+    가리키는 유형과 실제 OCR 번호가 다르면서, 그 번호가 같은 소단원의
+    "다른" 유형과 정확히 일치하면 그쪽이 진짜라고 보고 되돌려준다.
+    일치하는 게 없거나(OCR 실패 등) 이미 같으면 None(교정 없음).
+    """
+    if len(daepyo_digits) != 4 or daepyo_digits == current_type.problem_no:
+        return None
+    match = next((e for e in entries if e.problem_no == daepyo_digits), None)
+    if match is not None and match is not current_type:
+        return match
+    return None
+
+
 def _ocr_digits(page, box, pad=4, max_w=None, align='left'):
     x, y, w, h = box[:4]
     if max_w is not None and max_w < w:
@@ -151,17 +229,23 @@ def _page_markers(page):
     """페이지 하나에서 (kind, bbox, column) 마커 목록을 (column, y) 순서로 낸다."""
     arr = _page_array(page)
     W = arr.shape[1]
-    boxes = _find_colored_boxes(arr)
 
     markers = []
-    for b in boxes:
-        x, y, w, h, _ = b
-        column = 0 if x < W / 2 else 1
+    # 유형 알약(초록)과 대표문제 알약(빨강)은 색상 마스크 단계부터 따로
+    # 라벨링한다 - 옆에 붙은 "개념 07-9" 같은 금색 표찰과 한 부품으로
+    # 뭉쳐서 대표색이 오염되는 걸(예: (224,222,134) 같은 애매한 색) 막는다.
+    for b in _find_green_boxes(arr):
         if _is_type_pill(b):
+            x = b[0]
+            column = 0 if x < W / 2 else 1
             markers.append(('type_pill', b, column))
-        elif _is_daepyo_pill(b):
+    for b in _find_red_boxes(arr):
+        if _is_daepyo_pill(b):
+            x = b[0]
+            column = 0 if x < W / 2 else 1
             markers.append(('daepyo_pill', b, column))
 
+    boxes = _find_colored_boxes(arr)
     digit_frags = [b for b in boxes if _is_digit_fragment(b)]
     for gx0, gy0, gw, gh in _cluster_digits(digit_frags):
         column = 0 if gx0 < W / 2 else 1
@@ -171,12 +255,16 @@ def _page_markers(page):
     return markers
 
 
-def extract_problems(pdf_path: str, hwp_dir: str, out_dir: str, page_range: range | None = None) -> list[SenProblem]:
+def extract_problems(
+    pdf_path: str, hwp_dir: str, out_dir: str,
+    subsection_order: list[tuple[str, str]],
+    page_range: range | None = None,
+) -> tuple[list[SenProblem], list[str]]:
     from hwp_sen_daepyo_parse import extract_representative_types
 
     hwp_files = sorted(f for f in os.listdir(hwp_dir) if f.endswith('.hwp'))
-    if len(hwp_files) != len(SUBSECTION_ORDER):
-        raise ValueError(f'HWP 파일 수({len(hwp_files)})가 예상({len(SUBSECTION_ORDER)})과 다름')
+    if len(hwp_files) != len(subsection_order):
+        raise ValueError(f'HWP 파일 수({len(hwp_files)})가 예상({len(subsection_order)})과 다름')
     subsection_entries = [
         extract_representative_types(os.path.join(hwp_dir, fn)) for fn in hwp_files
     ]
@@ -207,13 +295,22 @@ def extract_problems(pdf_path: str, hwp_dir: str, out_dir: str, page_range: rang
 
         for column, col_markers in by_col.items():
             col_markers.sort(key=lambda m: m[1][1])
-            # 진짜 유형 알약은 항상 바로 다음에 그 유형의 대표문제 빨강 알약이
-            # 붙어 나온다. 이 짝이 없는 type_pill은 색상 오검출(예: 표지의
-            # 장식 요소)이므로 걸러낸다.
+            # 진짜 유형 알약은 그 뒤(다음 유형 알약이 나오기 전) 어딘가에
+            # 그 유형의 대표문제 빨강 알약이 붙어 나온다 - 바로 다음 마커일
+            # 필요는 없다(예: 이전 유형이 연습문제 없이 바로 다음 유형으로
+            # 이어지면 유형 알약 두 개가 연달아 나올 수 있다). 이 짝을 못
+            # 찾는 type_pill은 색상 오검출(예: 표지의 장식 요소)이므로 거른다.
+            def _has_daepyo_before_next_type(idx):
+                for j in range(idx + 1, len(col_markers)):
+                    if col_markers[j][0] == 'type_pill':
+                        return False
+                    if col_markers[j][0] == 'daepyo_pill':
+                        return True
+                return False
+
             col_markers = [
                 m for i, m in enumerate(col_markers)
-                if m[0] != 'type_pill'
-                or (i + 1 < len(col_markers) and col_markers[i + 1][0] == 'daepyo_pill')
+                if m[0] != 'type_pill' or _has_daepyo_before_next_type(i)
             ]
             for i, (kind, box) in enumerate(col_markers):
                 y0 = box[1]
@@ -261,10 +358,18 @@ def extract_problems(pdf_path: str, hwp_dir: str, out_dir: str, page_range: rang
 
                 is_daepyo = kind == 'daepyo_pill'
                 if is_daepyo:
-                    number = current_type.problem_no
-                    answer = current_type.answer
                     ocr = _ocr_digits(page, box, max_w=58, align='left')
                     digits = re.sub(r'\D', '', ocr)
+                    resynced = _resync_current_type(entries, current_type, digits)
+                    if resynced is not None:
+                        current_type = resynced
+                        type_no = int(resynced.type_no)
+                        next_type_no = type_no + 1
+                        type_upper_bound = (
+                            int(entries[type_no].problem_no) if type_no < len(entries) else None
+                        )
+                    number = current_type.problem_no
+                    answer = current_type.answer
                     if digits and digits != number:
                         warnings.append(
                             f'p{pno} col{column} 유형{current_type.type_no}({current_type.title}): '
@@ -286,7 +391,7 @@ def extract_problems(pdf_path: str, hwp_dir: str, out_dir: str, page_range: rang
                             )
                             number = None
 
-                section_name, subsection_name = SUBSECTION_ORDER[sub_idx]
+                section_name, subsection_name = subsection_order[sub_idx]
                 img_name = f'{stem}_{pno:04d}_{number or f"col{column}-{i}"}.png'
                 img_path = str(Path(out_dir) / img_name)
                 try:
@@ -307,15 +412,22 @@ def extract_problems(pdf_path: str, hwp_dir: str, out_dir: str, page_range: rang
     return results, warnings
 
 
+SUBJECT_SUBSECTION_ORDERS = {
+    '대수': ALGEBRA_SUBSECTION_ORDER,
+    '미적분2': MI2_SUBSECTION_ORDER,
+    '확률과 통계': PROBSTAT_SUBSECTION_ORDER,
+}
+
 if __name__ == '__main__':
     import sys
     from collections import Counter
 
-    pdf_path = sys.argv[1]
-    hwp_dir = sys.argv[2]
-    out_dir = sys.argv[3]
+    subject = sys.argv[1]
+    pdf_path = sys.argv[2]
+    hwp_dir = sys.argv[3]
+    out_dir = sys.argv[4]
 
-    problems, warnings = extract_problems(pdf_path, hwp_dir, out_dir)
+    problems, warnings = extract_problems(pdf_path, hwp_dir, out_dir, SUBJECT_SUBSECTION_ORDERS[subject])
     with open('sen_extract_log.txt', 'w', encoding='utf-8') as f:
         f.write(f'총 문제 수: {len(problems)}\n')
         f.write(f'대표문제 수: {sum(1 for p in problems if p.is_daepyo)}\n')

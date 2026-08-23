@@ -21,6 +21,32 @@ def test_extracts_type_title_and_representative_problem_no():
     ]
 
 
+def test_type_no_and_closing_bracket_glued_together():
+    # 보통 'NN'과 ']'가 따로 나오지만, 가끔 'NN]'처럼 한 조각으로 붙어 나온다.
+    texts = [
+        '[', '유형 ', '12]', '사잇값의 정리의 실생활에의 활용',
+        '0203', '문제 지문',
+    ]
+    entries = _parse_texts(texts)
+
+    assert (entries[0].type_no, entries[0].title, entries[0].problem_no) == (
+        '12', '사잇값의 정리의 실생활에의 활용', '0203',
+    )
+
+
+def test_type_word_and_number_glued_together():
+    # '유형'과 번호가 '유형 20'처럼 한 조각으로 붙고, ']'는 따로 나오는 경우.
+    texts = [
+        '[', '유형 20', ']', ' ', '삼각부등식; 이차식의 꼴',
+        '0757', '문제 지문',
+    ]
+    entries = _parse_texts(texts)
+
+    assert (entries[0].type_no, entries[0].title, entries[0].problem_no) == (
+        '20', '삼각부등식; 이차식의 꼴', '0757',
+    )
+
+
 def test_answer_taken_from_second_occurrence_not_body_text():
     # 0044 재등장 직후 '③'이 정답. 0044 첫 등장 뒤에 곧바로 나오는 본문
     # 텍스트('①의 경우...')를 정답으로 착각하면 안 된다.

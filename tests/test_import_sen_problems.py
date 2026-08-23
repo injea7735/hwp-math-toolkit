@@ -50,7 +50,7 @@ def test_reuses_existing_problem_type_from_taxonomy_seeding(session, chapter):
     session.add(existing)
     session.commit()
 
-    created = insert_problems(session, [_sen_problem()], pdf_path='x.pdf')
+    created = insert_problems(session, '미적분2', [_sen_problem()], pdf_path='x.pdf')
 
     assert created == 1
     types = session.query(ProblemType).filter_by(subsection_id=subsection.id).all()
@@ -58,7 +58,7 @@ def test_reuses_existing_problem_type_from_taxonomy_seeding(session, chapter):
 
 
 def test_daepyo_problem_gets_answer_from_hwp(session, chapter):
-    insert_problems(session, [_sen_problem(answer='③')], pdf_path='x.pdf')
+    insert_problems(session, '미적분2', [_sen_problem(answer='③')], pdf_path='x.pdf')
 
     problem = session.query(Problem).one()
     assert problem.answer == '③'
@@ -66,7 +66,7 @@ def test_daepyo_problem_gets_answer_from_hwp(session, chapter):
 
 def test_regular_problem_has_no_answer(session, chapter):
     p = _sen_problem(number='0045', is_daepyo=False, answer=None, image_path='img/0045.png')
-    insert_problems(session, [p], pdf_path='x.pdf')
+    insert_problems(session, '미적분2', [p], pdf_path='x.pdf')
 
     problem = session.query(Problem).one()
     assert problem.answer is None
@@ -74,8 +74,8 @@ def test_regular_problem_has_no_answer(session, chapter):
 
 def test_idempotent_rerun_by_image_path(session, chapter):
     p = _sen_problem()
-    insert_problems(session, [p], pdf_path='x.pdf')
-    created_again = insert_problems(session, [p], pdf_path='x.pdf')
+    insert_problems(session, '미적분2', [p], pdf_path='x.pdf')
+    created_again = insert_problems(session, '미적분2', [p], pdf_path='x.pdf')
 
     assert created_again == 0
     assert session.query(Problem).count() == 1

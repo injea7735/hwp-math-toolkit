@@ -76,10 +76,28 @@ def _parse_texts(texts: list[str]) -> list[RepresentativeType]:
     n = len(texts)
 
     # 1단계: "[유형 NN]제목\nNNNN" 목록을 훑는다.
+    #
+    # '[', '유형 ', 'NN', ']'가 항상 4개 조각으로 딱 떨어지는 게 아니다 -
+    # HWP가 문단 내 서식 경계에 따라 런(run)을 쪼개서, 번호가 ']'에 붙거나
+    # ('NN]'), '유형'이 번호에 붙기도 한다('유형 NN'). 위치를 가정하지 않고
+    # '['부터 ']'가 포함된 조각까지 이어붙인 뒤 정규식으로 번호만 뽑는다.
     while i < n:
         if texts[i].strip() == '[' and i + 1 < n and texts[i + 1].strip().startswith('유형'):
-            type_no = texts[i + 2].strip() if i + 2 < n else ''
-            j = i + 4  # '[', '유형 ', 'NN', ']' 다음부터
+            j = i + 1
+            header_parts = []
+            while j < n and ']' not in texts[j] and j - i <= 5:
+                header_parts.append(texts[j])
+                j += 1
+            if j >= n or ']' not in texts[j]:
+                i += 1
+                continue
+            header_parts.append(texts[j])
+            m = re.search(r'(\d+)', ''.join(header_parts))
+            if m is None:
+                i += 1
+                continue
+            type_no = m.group(1)
+            j += 1  # ']'가 포함된 조각 다음부터 제목 시작
             title_parts = []
             while j < n and not _PROBLEM_NUM_RE.match(texts[j].strip()):
                 title_parts.append(texts[j])
