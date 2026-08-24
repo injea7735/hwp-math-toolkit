@@ -79,3 +79,38 @@ def test_idempotent_rerun_by_image_path(session, chapter):
 
     assert created_again == 0
     assert session.query(Problem).count() == 1
+
+
+def test_fallback_named_image_flagged_for_review(session, chapter):
+    # 번호 OCR 실패로 'col{열}-{순번}' 식 임시 이름이 붙은 경우 - 파일이
+    # 실제로 존재하지 않아도(테스트용 가짜 경로) 이름 패턴만으로 걸린다.
+    p = _sen_problem(number=None, image_path='img/0060_col1-2.png')
+    insert_problems(session, '미적분2', [p], pdf_path='x.pdf')
+
+    problem = session.query(Problem).one()
+    assert problem.needs_review is True
+
+
+def test_tall_crop_flagged_for_review(session, chapter, tmp_path):
+    from PIL import Image
+    img_path = tmp_path / '0055.png'
+    Image.new('RGB', (800, 1800), 'white').save(img_path)
+    p = _sen_problem(image_path=str(img_path))
+
+    insert_problems(session, '미적분2', [p], pdf_path='x.pdf')
+
+    problem = session.query(Problem).one()
+    assert problem.needs_review is True
+
+
+def test_normal_crop_not_flagged(session, chapter, tmp_path):
+    from PIL import Image
+    img_path = tmp_path / '0056.png'
+    Image.new('RGB', (800, 600), 'white').save(img_path)
+    p = _sen_problem(image_path=str(img_path))
+
+    insert_problems(session, '미적분2', [p], pdf_path='x.pdf')
+
+    problem = session.query(Problem).one()
+    assert problem.needs_review is False
+    assert problem.source_page_index == 17

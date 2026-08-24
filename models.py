@@ -166,6 +166,13 @@ class Problem(Base):
     ngd_problem_id: Mapped[int | None] = mapped_column(Integer, unique=True, nullable=True)
     # NGD 문제은행(exam.db)에서 가져온 문제의 원본 problems.id. 재수입 시 중복 방지용 키.
 
+    source_page_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # 원본 PDF에서 몇 번째 페이지(0-index)에서 나왔는지. 크롭 경계를 사람이
+    # 다시 확인/수정할 때 원본 페이지를 다시 렌더링하기 위해 필요하다.
+    needs_review: Mapped[bool] = mapped_column(Boolean, default=False)
+    # 자동 인식 결과를 사람이 아직 확인 안 한 상태(번호 OCR 실패, 크롭 크기
+    # 이상치 등)인지. review_app.py의 검토 대상 목록이 이 값을 기준으로 삼는다.
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

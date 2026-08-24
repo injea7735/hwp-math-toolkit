@@ -9,12 +9,20 @@ ProblemType은 이미 import_sen_daepyo_types.py가 real 유형명으로 만들�
 from __future__ import annotations
 
 import json
+import re
 
+from PIL import Image
 from sqlalchemy.orm import Session
 
 from pdf_sen_extract import SenProblem
 from import_workbook_outline import get_or_create_section, get_or_create_subsection
 from models import Chapter, Problem, ProblemType, Source, init_db
+
+# 사람이 검토해야 할 만큼 불확실한 크롭을 골라내는 기준. 둘 다 실제로
+# 겪은 실패 패턴이다: 번호 OCR 실패(파일명이 col{열}-{순번} 형태로 남음),
+# 크롭 높이가 비정상적으로 커서 문제 여러 개가 한 이미지에 뭉친 경우.
+_FALLBACK_NAME_RE = re.compile(r'_col\d+-\d+\.png$')
+_TALL_CROP_PX = 1300
 
 
 def _get_or_create_source(session: Session, subject: str, pdf_path: str) -> Source:
@@ -56,6 +64,14 @@ def insert_problems(session: Session, subject: str, problems: list[SenProblem], 
         if exists is not None:
             continue
 
+        needs_review = bool(_FALLBACK_NAME_RE.search(p.image_path))
+        if not needs_review:
+            try:
+                with Image.open(p.image_path) as img:
+                    needs_review = img.height > _TALL_CROP_PX
+            except Exception:
+                needs_review = True  # 이미지 자체를 못 읽으면 일단 검토 대상으로
+
         session.add(Problem(
             problem_type_id=ptype.id,
             source_id=source.id,
@@ -64,6 +80,8 @@ def insert_problems(session: Session, subject: str, problems: list[SenProblem], 
             question_kind='객관식',
             image_paths=image_paths_json,
             original_file_path=pdf_path,
+            source_page_index=p.page_index,
+            needs_review=needs_review,
         ))
         created += 1
 
