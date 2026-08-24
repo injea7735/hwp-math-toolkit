@@ -275,7 +275,8 @@ def _page_markers(page):
     # 유형 알약(초록)과 대표문제 알약(빨강)은 색상 마스크 단계부터 따로
     # 라벨링한다 - 옆에 붙은 "개념 07-9" 같은 금색 표찰과 한 부품으로
     # 뭉쳐서 대표색이 오염되는 걸(예: (224,222,134) 같은 애매한 색) 막는다.
-    for b in _find_green_boxes(arr):
+    green_boxes = _find_green_boxes(arr)
+    for b in green_boxes:
         if _is_type_pill(b):
             x = b[0]
             column = 0 if x < W / 2 else 1
@@ -288,8 +289,12 @@ def _page_markers(page):
         elif _is_concept_heading(b):
             markers.append(('heading', b, column))
 
-    boxes = _find_colored_boxes(arr)
-    digit_frags = [b for b in boxes if _is_digit_fragment(b)]
+    # 일반 문제 번호도 초록 마스크에서만 찾는다 - "개념 확인" 절 번호는
+    # 주황색이라 여기서 자연히 빠진다. 예전에는 색을 안 가리고 다 잡은 뒤
+    # 번호 범위로 걸렀는데, 새 대단원의 개념 확인 절처럼 그 앞에 유형
+    # 알약이 하나도 없는 구간에서는 직전 유형의 상태가 그대로 남아 있어서
+    # 번호가 우연히 그 범위 안에 들면 전혀 다른 단원 내용이 섞여 들어갔다.
+    digit_frags = [b for b in green_boxes if _is_digit_fragment(b)]
     for gx0, gy0, gw, gh in _cluster_digits(digit_frags):
         column = 0 if gx0 < W / 2 else 1
         markers.append(('number', (gx0, gy0, gw, gh, None), column))
