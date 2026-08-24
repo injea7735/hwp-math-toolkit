@@ -2,6 +2,7 @@
 *.zip
 *.exe
 NGD문제은행_v1.4/
+problem_images/
 
 # Python
 __pycache__/
@@ -11,6 +12,7 @@ __pycache__/
 
 # DB
 *.db
+*.db.bak*
 
 # OS
 .DS_Store

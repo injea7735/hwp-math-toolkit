@@ -8,12 +8,21 @@
   `^`, `_`, `over`, `sqrt`, `bar`, `rm`, `LEFT`/`RIGHT` 등 자주 쓰이는 수식 표현을 지원한다.
 - **`models.py`** — 문제은행 DB 스키마 초안(SQLAlchemy ORM). 대단원/중단원/소단원/유형(taxonomy)과
   개념(Concept) 태그, 문제(Problem), 출처(Source)를 다룬다.
+- **`import_from_ngd.py`** — NGD 문제은행 앱(`exam.db`, SQLite)에서 문제를 읽어와 위 스키마로 가져오는 임포터.
+  NGD의 평평한 unit 목록은 "NGD 가져오기" 아래 소단원/유형으로 placeholder 매핑되며, 재실행해도
+  이미 가져온 문제(`ngd_problem_id`)는 건너뛴다.
 
 ## 설치
 
 ```bash
 pip install -r requirements.txt
 ```
+
+텍스트 레이어가 없는 스캔 PDF(`pdf_ocr_problem_extract.py`)를 다루려면 별도로
+[Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki) 설치가 추가로
+필요하다(pip으로 안 들어오는 시스템 프로그램). 한국어 인식을 쓰려면
+`tessdata_best` 저장소의 `kor.traineddata`를 받아서 tessdata 폴더에 넣어야
+한다(기본 `tessdata` 저장소 모델은 이 자료 폰트에서 정확도가 크게 떨어졌음).
 
 ## 사용 예시
 
@@ -28,6 +37,11 @@ hwp_eq_to_latex("t ^{2} le{17} over {2}")
 from models import init_db
 
 engine = init_db("sqlite:///math_bank.db")
+```
+
+```bash
+python import_from_ngd.py --target sqlite:///math_bank.db
+# 기본적으로 %LOCALAPPDATA%\examtool\exam.db 를 읽는다. 다른 경로는 --ngd-db 로 지정.
 ```
 
 ## 테스트

@@ -25,8 +25,8 @@ def test_create_all_tables():
     tables = set(inspect(engine).get_table_names())
     assert tables == {
         "chapters", "sections", "subsections", "problem_types",
-        "concepts", "problem_concepts", "sources", "problems",
-        "students", "attempts",
+        "difficulty_tiers", "concepts", "problem_concepts", "sources",
+        "problems", "students", "attempts",
     }
 
 
