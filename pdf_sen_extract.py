@@ -218,18 +218,24 @@ def _resync_current_type(entries, current_type, daepyo_digits):
     return None
 
 
-def _save_trimmed(pix, img_path, bottom_pad=25, min_height=60):
+def _save_trimmed(pix, img_path, bottom_pad=25, min_height=60, min_row_pixels=12):
     """문제 하나의 크롭 아래쪽 빈 여백을 잘라내고 저장한다.
 
     크롭 경계는 "다음 마커가 나오기 전까지"로 정하다 보니, 다음 마커가
     한참 아래(페이지 끝이나 유형 사이 간격)에 있으면 실제 문제 내용은
     위쪽에 다 몰려 있고 아래는 빈 백지로 남는다 - 이미지 미리보기에서
     문제가 위로 쏠려 보이고, 나중에 다른 내용이 안 보일까 걱정하게 만든다.
-    실제 내용(흰색이 아닌 픽셀)이 있는 마지막 줄까지만 남긴다.
+    실제 내용이 있는 마지막 줄까지만 남긴다.
+
+    "흰색 아닌 픽셀이 한 개라도 있으면 내용"으로 보면 안 된다 - 페이지
+    렌더링 잡음으로 옅은 세로선 하나가 크롭 전체에 쭉 이어지는 경우가
+    있는데, 그러면 진짜 내용이 끝난 뒤에도 계속 "내용 있음"으로 잡혀서
+    안 잘린다. 한 줄에 흰색 아닌 픽셀이 min_row_pixels개를 넘어야
+    진짜 내용으로 친다.
     """
     arr = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
     non_white = np.any(arr[:, :, :3] < 250, axis=2)
-    rows_with_content = np.where(non_white.any(axis=1))[0]
+    rows_with_content = np.where(non_white.sum(axis=1) >= min_row_pixels)[0]
     if len(rows_with_content) == 0:
         pix.save(img_path)
         return

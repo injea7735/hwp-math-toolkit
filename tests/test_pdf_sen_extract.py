@@ -160,6 +160,25 @@ def test_save_trimmed_cuts_trailing_blank_space(tmp_path):
     assert height == 84
 
 
+def test_save_trimmed_ignores_thin_vertical_line_artifact(tmp_path):
+    # 실제로 겪은 버그: 렌더링 잡음으로 크롭 전체 세로에 옅은 선 하나가
+    # 쭉 이어지면(한 줄에 몇 픽셀뿐) "내용 있음"으로 잘못 잡혀서 거의
+    # 안 잘렸다. 진짜 내용(20~60행, 폭 80픽셀)만 있고 그 아래는 잡음
+    # 뿐이면 잡음은 무시하고 진짜 내용 근처에서 잘라야 한다.
+    arr = np.full((400, 100, 3), 255, dtype=np.uint8)
+    arr[20:60, 10:90] = 0  # 진짜 내용
+    arr[60:400, 50:53] = 0  # 페이지 끝까지 이어지는 옅은 세로선 잡음(폭 3px)
+    pix = _FakePixmap(arr)
+    out = tmp_path / 'out.png'
+
+    _save_trimmed(pix, str(out), bottom_pad=25, min_height=60, min_row_pixels=12)
+
+    from PIL import Image
+    with Image.open(out) as saved:
+        height = saved.height
+    assert height < 200  # 잡음 때문에 400행 끝까지 안 끌려갔다
+
+
 def test_save_trimmed_keeps_minimum_height_for_short_content(tmp_path):
     arr = np.full((400, 100, 3), 255, dtype=np.uint8)
     arr[20:25, 10:90] = 0  # 아주 짧은 내용
