@@ -155,6 +155,14 @@ def _is_daepyo_pill(box):
     return 110 <= w <= 160 and 22 <= h <= 36 and r > g + 80 and r > b + 100
 
 
+def _is_concept_heading(box):
+    """소단원 안의 "04-4 독립시행의 확률" 같은 개념 소제목 알약(진한 주황).
+    문제/유형/대표문제와 무관하지만, 문제 이미지를 자를 때 그 다음 문제로
+    넘어가지 않고 이 알약까지 통째로 잘려 들어가지 않도록 경계로만 쓴다."""
+    x, y, w, h, (r, g, b) = box
+    return 50 <= w <= 80 and 26 <= h <= 42 and r > g and g - b > 80
+
+
 def _is_digit_fragment(box):
     x, y, w, h, (r, g, b) = box
     return 6 <= w <= 15 and 14 <= h <= 24
@@ -210,6 +218,33 @@ def _resync_current_type(entries, current_type, daepyo_digits):
     return None
 
 
+def _save_trimmed(pix, img_path, bottom_pad=25, min_height=60):
+    """문제 하나의 크롭 아래쪽 빈 여백을 잘라내고 저장한다.
+
+    크롭 경계는 "다음 마커가 나오기 전까지"로 정하다 보니, 다음 마커가
+    한참 아래(페이지 끝이나 유형 사이 간격)에 있으면 실제 문제 내용은
+    위쪽에 다 몰려 있고 아래는 빈 백지로 남는다 - 이미지 미리보기에서
+    문제가 위로 쏠려 보이고, 나중에 다른 내용이 안 보일까 걱정하게 만든다.
+    실제 내용(흰색이 아닌 픽셀)이 있는 마지막 줄까지만 남긴다.
+    """
+    arr = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
+    non_white = np.any(arr[:, :, :3] < 250, axis=2)
+    rows_with_content = np.where(non_white.any(axis=1))[0]
+    if len(rows_with_content) == 0:
+        pix.save(img_path)
+        return
+    first_row = int(rows_with_content[0])
+    last_row = int(rows_with_content[-1]) + bottom_pad
+    last_row = max(last_row, first_row + min_height)  # 최소 높이는 보장
+    last_row = min(last_row, pix.height)
+    if last_row >= pix.height:
+        pix.save(img_path)
+        return
+    mode = 'RGBA' if pix.n == 4 else 'RGB'
+    img = Image.frombuffer(mode, (pix.width, pix.height), pix.samples, 'raw', mode, 0, 1)
+    img.crop((0, 0, pix.width, last_row)).save(img_path)
+
+
 def _ocr_digits(page, box, pad=4, max_w=None, align='left'):
     x, y, w, h = box[:4]
     if max_w is not None and max_w < w:
@@ -240,10 +275,12 @@ def _page_markers(page):
             column = 0 if x < W / 2 else 1
             markers.append(('type_pill', b, column))
     for b in _find_red_boxes(arr):
+        x = b[0]
+        column = 0 if x < W / 2 else 1
         if _is_daepyo_pill(b):
-            x = b[0]
-            column = 0 if x < W / 2 else 1
             markers.append(('daepyo_pill', b, column))
+        elif _is_concept_heading(b):
+            markers.append(('heading', b, column))
 
     boxes = _find_colored_boxes(arr)
     digit_frags = [b for b in boxes if _is_digit_fragment(b)]
@@ -315,6 +352,9 @@ def extract_problems(
             for i, (kind, box) in enumerate(col_markers):
                 y0 = box[1]
                 y1 = col_markers[i + 1][1][1] if i + 1 < len(col_markers) else H * DPI / 72
+
+                if kind == 'heading':
+                    continue  # 개념 소제목 알약 - 내용은 안 쓰고 자르는 경계로만 쓴다
 
                 if kind == 'type_pill':
                     ocr = _ocr_digits(page, box, max_w=38, align='right')
@@ -396,7 +436,7 @@ def extract_problems(
                 img_path = str(Path(out_dir) / img_name)
                 try:
                     pix = page.get_pixmap(clip=clip, dpi=200)
-                    pix.save(img_path)
+                    _save_trimmed(pix, img_path)
                 except Exception as exc:
                     warnings.append(f'p{pno} col{column} 이미지 저장 실패({clip}): {exc}')
                     continue

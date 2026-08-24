@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from pdf_sen_extract import (
     _find_colored_boxes, _find_green_boxes, _find_red_boxes, _is_type_pill, _is_daepyo_pill,
-    _resync_current_type,
+    _is_concept_heading, _resync_current_type, _save_trimmed,
 )
 from hwp_sen_daepyo_parse import RepresentativeType
 
@@ -120,3 +120,55 @@ def test_resync_no_change_when_ocr_unreadable_or_unmatched():
     assert _resync_current_type(entries, entries[0], '') is None
     assert _resync_current_type(entries, entries[0], '12') is None  # 4자리 아님
     assert _resync_current_type(entries, entries[0], '9999') is None  # 매칭 없음
+
+
+def test_concept_heading_detected_by_amber_color_not_daepyo():
+    # "04-4 독립시행의 확률" 같은 개념 소제목 알약: 진한 주황(대표문제 빨강과
+    # 다름 - g-b 차이가 훨씬 큼), 크기는 유형 알약과 비슷하다.
+    arr = _white_canvas(h=60, w=100)
+    arr[10:47, 10:74] = (250, 155, 28)
+
+    boxes = _find_red_boxes(arr)
+    assert len(boxes) == 1
+    assert _is_concept_heading(boxes[0])
+    assert not _is_daepyo_pill(boxes[0])
+    assert not _is_type_pill(boxes[0])
+
+
+class _FakePixmap:
+    def __init__(self, arr):
+        self.height, self.width, self.n = arr.shape
+        self.samples = arr.tobytes()
+        self.saved_full = False
+
+    def save(self, path):
+        self.saved_full = True
+
+
+def test_save_trimmed_cuts_trailing_blank_space(tmp_path):
+    arr = np.full((400, 100, 3), 255, dtype=np.uint8)
+    arr[20:60, 10:90] = 0  # 내용은 위쪽 20~60행에만 있고 나머지는 흰 여백
+    pix = _FakePixmap(arr)
+    out = tmp_path / 'out.png'
+
+    _save_trimmed(pix, str(out), bottom_pad=25, min_height=60)
+
+    from PIL import Image
+    with Image.open(out) as saved:
+        height = saved.height
+    assert height < 200  # 400행 전체가 아니라 내용 근처(59+25=84)에서 잘렸다
+    assert height == 84
+
+
+def test_save_trimmed_keeps_minimum_height_for_short_content(tmp_path):
+    arr = np.full((400, 100, 3), 255, dtype=np.uint8)
+    arr[20:25, 10:90] = 0  # 아주 짧은 내용
+    pix = _FakePixmap(arr)
+    out = tmp_path / 'out.png'
+
+    _save_trimmed(pix, str(out), bottom_pad=25, min_height=60)
+
+    from PIL import Image
+    with Image.open(out) as saved:
+        height = saved.height
+    assert height >= 60
