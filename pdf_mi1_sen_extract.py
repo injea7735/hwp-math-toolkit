@@ -18,11 +18,41 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import fitz
+import pytesseract
+from PIL import Image
 
 from pdf_sen_extract import (
     DPI, _cluster_digits, _find_green_boxes, _find_red_boxes, _is_concept_heading,
     _is_digit_fragment, _ocr_digits, _page_array, _save_trimmed,
 )
+
+_TITLE_MATCH_WINDOW = 6  # 몇 칸 앞까지(같은 소단원 안에서만) 재동기화를 시도할지
+_TITLE_MATCH_THRESHOLD = 0.5
+_STRIP_RE = re.compile(r'[^가-힣0-9]')
+
+
+def _norm_title(s: str) -> str:
+    return _STRIP_RE.sub('', s)
+
+
+def _title_similarity(a: str, b: str) -> float:
+    """글자 집합 겹침 비율(순서 무시) - OCR이 띄어쓰기/조사를 흘리거나
+    수식 기호를 깨뜨려도 한글 핵심 어절이 남아 있으면 높게 나온다."""
+    a, b = _norm_title(a), _norm_title(b)
+    if not a or not b:
+        return 0.0
+    shorter, longer = (a, b) if len(a) <= len(b) else (b, a)
+    return sum(1 for c in shorter if c in longer) / len(shorter)
+
+
+def _ocr_pill_title(page, box) -> str:
+    """유형 알약 자체(숫자)는 못 읽지만, 바로 오른쪽에 일반 텍스트로 인쇄된
+    제목은 잘 읽힌다 - pdf_mi1_toc_parse.py의 목차 OCR과 같은 원리."""
+    x, y, w, h = box[:4]
+    rect = fitz.Rect((x + w) * 72 / DPI, y * 72 / DPI, (x + w + 380) * 72 / DPI, (y + h) * 72 / DPI)
+    pix = page.get_pixmap(clip=rect, dpi=400)
+    img = Image.frombuffer('RGB', (pix.width, pix.height), pix.samples, 'raw', 'RGB', 0, 1)
+    return pytesseract.image_to_string(img, lang='kor', config='--psm 7').strip()
 
 
 def _is_daepyo_pill_mi1(box) -> bool:
@@ -154,6 +184,33 @@ def extract_problems(
     def entries_for(idx: int) -> list[tuple[str, str]]:
         return toc[subsection_order[idx][1]]
 
+    def _window(start_sub_idx: int, start_type_no: int, n: int) -> list[tuple[int, int]]:
+        """(sub_idx, type_no) 쌍을 최대 n개 낸다 - 지금 소단원 안에서만 찾는다.
+
+        처음엔 다음 소단원까지 넘어가며 찾게 했었는데, 한 소단원 안에서
+        연속으로 여러 유형 알약이 안 걸리면(윈도우 크기 이상으로 밀리면)
+        다음 소단원의 앞쪽 유형과 우연히 제목이 비슷해 보여(임계값을
+        가까스로 넘겨) 엉뚱한 소단원으로 잘못 건너뛰는 사고가 실제로
+        났다(도함수의 활용⑶ 내용이 부정적분 유형으로 잘못 붙음). 소단원
+        전환 자체는 원래의 위치 기반 롤오버 판정(type_no > len(entries))
+        하나만 믿는 게 안전하다 - 그 판정은 이 페이지 제목이 아니라 "이번
+        소단원 유형을 다 썼는가"만 보므로 오탐 여지가 훨씬 적다."""
+        entries = entries_for(start_sub_idx)
+        return [
+            (start_sub_idx, tn)
+            for tn in range(start_type_no, min(start_type_no + n, len(entries) + 1))
+        ]
+
+    def _best_match(real_title: str, candidates: list[tuple[int, int]]) -> tuple[int, int] | None:
+        best = None
+        best_sim = 0.0
+        for si, tn in candidates:
+            _, title = entries_for(si)[tn - 1]
+            sim = _title_similarity(title, real_title)
+            if sim > best_sim:
+                best_sim, best = sim, (si, tn)
+        return best if best is not None and best_sim >= _TITLE_MATCH_THRESHOLD else None
+
     for pno in pages:
         page = doc[pno]
         W, H = page_dims[pno]
@@ -172,16 +229,45 @@ def extract_problems(
                     continue
 
                 if kind == 'type_pill':
+                    real_title = _ocr_pill_title(page, box)
+                    resolved = (
+                        _best_match(real_title, _window(sub_idx, next_type_no, _TITLE_MATCH_WINDOW))
+                        if real_title else None
+                    )
+                    if resolved is not None:
+                        if resolved != (sub_idx, next_type_no):
+                            got_name = subsection_order[resolved[0]][1]
+                            warnings.append(
+                                f'p{pno} col{column} 재동기화: 위치상 예상='
+                                f'{subsection_order[sub_idx][1]}유형{next_type_no} -> '
+                                f'실제 제목 매칭={got_name}유형{resolved[1]}'
+                            )
+                        sub_idx, type_no = resolved
+                    else:
+                        type_no = next_type_no
+                        if type_no > len(entries_for(sub_idx)):
+                            # 지금 소단원 안에서는 못 찾았다 - 다음 소단원으로
+                            # 진짜 넘어간 게 맞는지, 그 제목으로 한 번 더
+                            # 확인한다(안 그러면 지금 소단원의 뒷부분 유형이
+                            # 여러 개 연달아 안 걸렸을 때 다음 소단원으로
+                            # 잘못 새는 사고가 난다 - 실제로 겪음).
+                            next_confirmed = (
+                                real_title and sub_idx + 1 < len(subsection_order)
+                                and _best_match(real_title, _window(sub_idx + 1, 1, _TITLE_MATCH_WINDOW))
+                            )
+                            if next_confirmed:
+                                sub_idx, type_no = next_confirmed
+                            elif current_type_no is not None:
+                                # 확인이 안 되면 소단원을 넘기지 않는다 - 지금
+                                # 유형에 계속 붙이는 쪽이 엉뚱한 소단원으로
+                                # 새는 것보다 낫다.
+                                continue
+                            elif sub_idx + 1 < len(subsection_order):
+                                sub_idx += 1
+                                type_no = 1
+                            else:
+                                continue
                     entries = entries_for(sub_idx)
-                    type_no = next_type_no
-                    if type_no > len(entries):
-                        if sub_idx + 1 < len(subsection_order):
-                            sub_idx += 1
-                            entries = entries_for(sub_idx)
-                            type_no = 1
-                        else:
-                            current_type_no = None
-                            continue
                     current_type_no, current_type_title = entries[type_no - 1]
                     next_type_no = type_no + 1
                     continue
