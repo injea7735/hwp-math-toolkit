@@ -4,7 +4,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from pdf_mi1_sen_extract import (
-    _is_daepyo_pill_mi1, _is_type_pill_mi1, _norm_title, _title_similarity,
+    _cluster_digits_mi1, _is_daepyo_pill_mi1, _is_type_pill_mi1, _norm_title, _title_similarity,
 )
 
 
@@ -66,3 +66,35 @@ def test_title_similarity_empty_is_zero():
 
 def test_norm_title_strips_non_korean_non_digit():
     assert _norm_title('. 함수의 연속(2)  개") ') == '함수의연속2개'
+
+
+def test_cluster_digits_mi1_groups_despite_1px_row_jitter():
+    # 실측 사례: 같은 줄인데 y가 728/729/729/729로 1px 어긋나서, 원래
+    # pdf_sen_extract._cluster_digits는 (y,x) 튜플 정렬이 깨져 그룹을
+    # 하나도 못 만들었다(번호 마커가 통째로 사라짐).
+    frags = [
+        (143, 728, 11, 19, None),
+        (107, 729, 10, 19, None),
+        (120, 729, 6, 18, None),
+        (131, 729, 10, 18, None),
+    ]
+    groups = _cluster_digits_mi1(frags)
+    assert len(groups) == 1
+    gx0, gy0, gw, gh = groups[0]
+    assert gx0 == 107
+    assert gx0 + gw == 143 + 11
+
+
+def test_cluster_digits_mi1_keeps_two_rows_separate():
+    row1 = [(107, 729, 10, 19, None), (120, 729, 6, 18, None),
+            (131, 729, 10, 18, None), (143, 728, 11, 19, None)]
+    row2 = [(107, 1229, 10, 19, None), (120, 1229, 7, 19, None),
+            (131, 1229, 11, 18, None), (143, 1228, 11, 19, None)]
+    groups = _cluster_digits_mi1(row1 + row2)
+    assert len(groups) == 2
+
+
+def test_cluster_digits_mi1_ignores_incomplete_group():
+    # 획이 3개뿐이면(하나가 아예 색상 검출부터 실패) 4자리로 인정하지 않는다.
+    frags = [(107, 729, 10, 19, None), (120, 729, 6, 18, None), (131, 729, 10, 18, None)]
+    assert _cluster_digits_mi1(frags) == []

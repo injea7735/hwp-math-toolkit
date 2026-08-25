@@ -22,7 +22,7 @@ import pytesseract
 from PIL import Image
 
 from pdf_sen_extract import (
-    DPI, _cluster_digits, _find_green_boxes, _find_red_boxes, _is_concept_heading,
+    DPI, _find_green_boxes, _find_red_boxes, _is_concept_heading,
     _is_digit_fragment, _ocr_digits, _page_array, _save_trimmed,
 )
 
@@ -78,6 +78,53 @@ def _is_type_pill_mi1(box) -> bool:
     return 58 <= w <= 72 and 30 <= h <= 40 and g > r + 20
 
 
+def _cluster_digits_mi1(fragments):
+    """pdf_sen_extract._cluster_digits와 같은 목적이지만, 이 책에서는 같은
+    줄 안의 획 4개끼리도 y좌표가 안티에일리어싱 때문에 1px씩 들쭉날쭉한
+    경우가 흔하다(예: 728/729/729/729). 원래 함수는 (y, x) 튜플로 그대로
+    정렬해서, 그 1px 차이 때문에 오른쪽 획이 왼쪽 획들보다 먼저 정렬되면
+    이후 "왼쪽에서 오른쪽으로만 이어붙인다"는 가정이 깨져 그룹이 통째로
+    안 만들어진다 - 실제로 겪음(번호 마커가 아예 안 잡혀서 문제 여러 개가
+    한 크롭에 뭉침). y로 먼저 "같은 줄" 그룹을 확정(y 간격이 4px 넘게
+    벌어지면 새 줄로 간주)한 뒤 그 줄 안에서만 x로 정렬하면 이 문제가
+    없다 - 단순히 y를 특정 배수로 반올림(버킷팅)하는 방식은 728/729처럼
+    반올림 경계선에 걸치는 값에서 여전히 다른 버킷으로 갈라지는 걸
+    실제로 확인해서 버렸다."""
+    by_y = sorted(fragments, key=lambda b: b[1])
+    rows: list[list] = []
+    for f in by_y:
+        if rows and f[1] - rows[-1][-1][1] <= 4:
+            rows[-1].append(f)
+        else:
+            rows.append([f])
+    frags = [f for row in rows for f in sorted(row, key=lambda b: b[0])]
+    used = [False] * len(frags)
+    groups = []
+    for i, f in enumerate(frags):
+        if used[i]:
+            continue
+        x0, y0, w0, h0, _ = f
+        group = [f]
+        used[i] = True
+        cy = y0 + h0 / 2
+        last_x1 = x0 + w0
+        for j in range(i + 1, len(frags)):
+            if used[j]:
+                continue
+            x1, y1, w1, h1, _ = frags[j]
+            if abs((y1 + h1 / 2) - cy) < 6 and 0 <= x1 - last_x1 <= 8:
+                group.append(frags[j])
+                used[j] = True
+                last_x1 = x1 + w1
+        if len(group) == 4:
+            gx0 = min(g[0] for g in group)
+            gy0 = min(g[1] for g in group)
+            gx1 = max(g[0] + g[2] for g in group)
+            gy1 = max(g[1] + g[3] for g in group)
+            groups.append((gx0, gy0, gx1 - gx0, gy1 - gy0))
+    return groups
+
+
 def _page_markers_mi1(page):
     arr = _page_array(page)
     W = arr.shape[1]
@@ -97,7 +144,7 @@ def _page_markers_mi1(page):
             markers.append(('heading', b, column))
 
     digit_frags = [b for b in green_boxes if _is_digit_fragment(b)]
-    for gx0, gy0, gw, gh in _cluster_digits(digit_frags):
+    for gx0, gy0, gw, gh in _cluster_digits_mi1(digit_frags):
         column = 0 if gx0 < W / 2 else 1
         markers.append(('number', (gx0, gy0, gw, gh, None), column))
 
