@@ -7,6 +7,14 @@ extract_sen_difficulty_badges.detect_badges()가 실제 신호(색+모양)를 �
 question_kind는 항상 갱신한다(배지가 없으면 기존 파이프라인 기본값과 같은
 '객관식'이라 값이 바뀌지 않음).
 
+주의(실제로 한 번 사고 났음 - repair_sen_difficulty_corruption.py 참고):
+이 배지 색/모양 검출기는 쎈수학 책의 레이아웃으로만 캘리브레이션되어 있다.
+같은 Chapter 안에 다른 출처(내신고쟁이 PDF, 수매씽, RPM, NGD 스크린샷)의
+이미지도 섞여 있는데, 거기 우연히 비슷한 색 덩어리가 있으면 오탐이 나서
+그 책들의 원래 값(예: NGD의 진짜 난이도, guess_question_kind로 정확히
+구분되던 question_kind)을 잘못된 값으로 덮어써버린다. 그래서 image_paths에
+"쎈수학"이 포함된 행만 처리하도록 기본적으로 제한한다.
+
 사용: python backfill_sen_difficulty.py 기하 [--apply]
 --apply 없이 실행하면 통계만 보여주고 DB는 건드리지 않는다.
 """
@@ -32,6 +40,7 @@ def backfill(session: Session, chapter_name: str, apply: bool) -> dict:
         .join(Chapter, Section.chapter_id == Chapter.id)
         .filter(Chapter.name == chapter_name)
         .filter(Problem.image_paths.isnot(None))
+        .filter(Problem.image_paths.like('%쎈수학%'))
         .all()
     )
     difficulty_counter = Counter()
