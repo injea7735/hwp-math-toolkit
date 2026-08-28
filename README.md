@@ -24,6 +24,11 @@ pip install -r requirements.txt
 `tessdata_best` 저장소의 `kor.traineddata`를 받아서 tessdata 폴더에 넣어야
 한다(기본 `tessdata` 저장소 모델은 이 자료 폰트에서 정확도가 크게 떨어졌음).
 
+자동 출제(`generate_worksheet.py`)로 HWP 시험지를 생성하려면 이 PC에 한글
+(HWP) 프로그램이 설치되어 있어야 한다(COM 자동화로 실제 문서를 생성함,
+Windows 전용). HTML 시험지만 필요하면 `--html-only`로 이 의존성을 건너뛸
+수 있다.
+
 ## 사용 예시
 
 ```python
@@ -42,6 +47,13 @@ engine = init_db("sqlite:///math_bank.db")
 ```bash
 python import_from_ngd.py --target sqlite:///math_bank.db
 # 기본적으로 %LOCALAPPDATA%\examtool\exam.db 를 읽는다. 다른 경로는 --ngd-db 로 지정.
+```
+
+```bash
+python generate_worksheet.py --chapter 미적분1 --subsection "도함수의 활용 ⑵" \
+    --type "함수의 극대" --count 10 --title "도함수의 활용 소단원 평가" \
+    --out worksheets/deriv_app2
+# worksheets/deriv_app2.html (인쇄/열람용) 과 .hwp (실제 편집 가능한 수식 포함) 를 함께 생성.
 ```
 
 ## 테스트

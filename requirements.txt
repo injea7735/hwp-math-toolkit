@@ -10,3 +10,4 @@ numpy>=1.26
 Pillow>=10.0
 scipy>=1.11
 Flask>=3.0
+pywin32>=306; sys_platform == "win32"

@@ -3,6 +3,7 @@
 *.exe
 NGD문제은행_v1.4/
 problem_images/
+worksheets/
 
 # Python
 __pycache__/
