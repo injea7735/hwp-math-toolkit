@@ -30,11 +30,13 @@ def _problem_body_html(p: Problem, choice_order: list[int] | None) -> str:
                 parts.append(f'<img src="{uri}" alt="문제 이미지">')
     elif p.stem_latex:
         stem = strip_watermark_noise(p.stem_latex)
-        main_text, condition_items = split_condition_block(stem)
+        main_text, condition_items, trailing_text = split_condition_block(stem)
         parts.append(f'<div class="stem-text">{main_text.replace(chr(10), "<br>")}</div>')
         if condition_items:
             lines = ''.join(f'<div>{item.replace(chr(10), "<br>")}</div>' for item in condition_items)
             parts.append(f'<div class="condition-box">{lines}</div>')
+            if trailing_text:
+                parts.append(f'<div class="stem-text">{trailing_text.replace(chr(10), "<br>")}</div>')
         if p.choices_latex:
             try:
                 choices = json.loads(p.choices_latex)

@@ -154,12 +154,15 @@ def _insert_problem(
         _insert_text(hwp, "\n")
     elif p.stem_latex:
         stem = strip_watermark_noise(p.stem_latex)
-        main_text, condition_items = split_condition_block(stem)
+        main_text, condition_items, trailing_text = split_condition_block(stem)
         _insert_mixed_text(hwp, main_text)
         _insert_text(hwp, "\n")
         if condition_items:
             _insert_condition_box(hwp, condition_items)
             _insert_text(hwp, "\n")
+            if trailing_text:
+                _insert_mixed_text(hwp, trailing_text)
+                _insert_text(hwp, "\n")
         if p.choices_latex:
             try:
                 choices = json.loads(p.choices_latex)
