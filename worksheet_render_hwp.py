@@ -34,6 +34,7 @@ from models import Problem
 from latex_to_hwp_eq import latex_to_hwp_eq
 from worksheet_select import describe_problem_path
 from text_normalize import strip_watermark_noise
+from condition_box import split_condition_block
 
 _MATH_SPLIT_RE = re.compile(r'\$([^$]+)\$')
 _CIRCLED = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧']
@@ -113,6 +114,32 @@ def _insert_image(hwp, image_path: str, ascii_tmp_dir: Path) -> None:
     hwp.InsertPicture(str(ascii_copy), True, 0, False, False, 0, 0, 0)
 
 
+_CONDITION_BOX_WIDTH_MM = 156  # A4 기준 인쇄 가능 폭에 맞춘 박스 너비
+
+
+def _insert_condition_box(hwp, items: list[str]) -> None:
+    """"(가) ... (나) ..." 조건 나열을 테두리 박스(1x1 표)로 감싸 삽입한다.
+    실제 COM으로 검증한 방식: 표를 만들고 셀 안에 텍스트/수식을 넣은 뒤
+    TableColBegin+CloseEx로 표 밖으로 빠져나온다."""
+    tc = hwp.HParameterSet.HTableCreation
+    hwp.HAction.GetDefault("TableCreate", tc.HSet)
+    tc.Rows = 1
+    tc.Cols = 1
+    tc.WidthType = 0
+    tc.WidthValue = hwp.MiliToHwpUnit(_CONDITION_BOX_WIDTH_MM)
+    tc.HeightType = 1
+    tc.HeightValue = hwp.MiliToHwpUnit(15)
+    hwp.HAction.Execute("TableCreate", tc.HSet)
+
+    for i, item in enumerate(items):
+        if i > 0:
+            hwp.Run("BreakPara")
+        _insert_mixed_text(hwp, item)
+
+    hwp.Run("TableColBegin")
+    hwp.Run("CloseEx")
+
+
 def _insert_problem(
     hwp, index: int, p: Problem, ascii_tmp_dir: Path, show_path: bool,
     choice_order: list[int] | None = None,
@@ -126,8 +153,13 @@ def _insert_problem(
             _insert_image(hwp, path, ascii_tmp_dir)
         _insert_text(hwp, "\n")
     elif p.stem_latex:
-        _insert_mixed_text(hwp, strip_watermark_noise(p.stem_latex))
+        stem = strip_watermark_noise(p.stem_latex)
+        main_text, condition_items = split_condition_block(stem)
+        _insert_mixed_text(hwp, main_text)
         _insert_text(hwp, "\n")
+        if condition_items:
+            _insert_condition_box(hwp, condition_items)
+            _insert_text(hwp, "\n")
         if p.choices_latex:
             try:
                 choices = json.loads(p.choices_latex)

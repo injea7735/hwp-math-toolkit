@@ -7,6 +7,7 @@ from pathlib import Path
 
 from models import Problem
 from text_normalize import strip_watermark_noise
+from condition_box import split_condition_block
 
 _CIRCLED = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧']
 
@@ -28,8 +29,12 @@ def _problem_body_html(p: Problem, choice_order: list[int] | None) -> str:
             if uri:
                 parts.append(f'<img src="{uri}" alt="문제 이미지">')
     elif p.stem_latex:
-        text = strip_watermark_noise(p.stem_latex).replace('\n', '<br>')
-        parts.append(f'<div class="stem-text">{text}</div>')
+        stem = strip_watermark_noise(p.stem_latex)
+        main_text, condition_items = split_condition_block(stem)
+        parts.append(f'<div class="stem-text">{main_text.replace(chr(10), "<br>")}</div>')
+        if condition_items:
+            lines = ''.join(f'<div>{item.replace(chr(10), "<br>")}</div>' for item in condition_items)
+            parts.append(f'<div class="condition-box">{lines}</div>')
         if p.choices_latex:
             try:
                 choices = json.loads(p.choices_latex)
@@ -61,6 +66,8 @@ window.MathJax = {{ tex: {{ inlineMath: [['$', '$']] }} }};
   .problem .num {{ font-weight: bold; margin-right: 6px; }}
   .path {{ color: #888; font-size: 0.78em; margin-bottom: 4px; }}
   .stem-text {{ margin-top: 4px; }}
+  .condition-box {{ margin-top: 8px; border: 1px solid #333; padding: 10px 14px; }}
+  .condition-box div {{ margin: 2px 0; }}
   .choices {{ margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px 22px; }}
   img {{ max-width: 100%; display: block; margin-top: 6px; }}
   .answer-key {{ margin-top: 60px; border-top: 2px solid #333; padding-top: 16px; }}
