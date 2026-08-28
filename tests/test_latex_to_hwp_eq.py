@@ -1,3 +1,8 @@
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from latex_to_hwp_eq import latex_to_hwp_eq
 from hwp_eq_to_latex import hwp_eq_to_latex
 

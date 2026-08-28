@@ -56,6 +56,16 @@ python generate_worksheet.py --chapter 미적분1 --subsection "도함수의 활
 # worksheets/deriv_app2.html (인쇄/열람용) 과 .hwp (실제 편집 가능한 수식 포함) 를 함께 생성.
 ```
 
+```bash
+# A형/B형 두 버전(문제·보기 순서를 각각 다르게 섞음), 난이도 하:중:상 = 2:5:3
+# 비율로 20문제, 정답은 별도 파일로 분리
+python generate_worksheet.py --chapter 미적분1 --count 20 \
+    --label-ratio "하:2,중:5,상:3" --form A --form B --separate-answer-key \
+    --title "중간고사 대비" --out worksheets/midterm
+# worksheets/midterm_A.html, midterm_A.hwp, midterm_A_answers.html, midterm_A_answers.hwp
+# (B형도 동일하게) 를 생성. 보기를 섞어도 정답 표시(①②③...)는 실제 정답 내용을 계속 가리키도록 자동으로 다시 계산된다.
+```
+
 ## 테스트
 
 ```bash

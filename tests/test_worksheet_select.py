@@ -1,3 +1,8 @@
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
@@ -38,6 +43,16 @@ def seeded(session):
     return ch, ss1, ss2, t1, t2
 
 
+@pytest.fixture
+def seeded_with_difficulty(session, seeded):
+    ch, ss1, ss2, t1, t2 = seeded
+    for label in ["하", "하", "중", "중", "중", "상", "상", "상", "상", "상"]:
+        session.add(Problem(problem_type=t1, stem_latex="난이도 문제", difficulty_label=label, question_kind="객관식"))
+    session.add(Problem(problem_type=t2, stem_latex="서술형 문제", question_kind="서술형"))
+    session.commit()
+    return ch, ss1, ss2, t1, t2
+
+
 def test_filters_by_chapter_only(session, seeded):
     sel = WorksheetSelection(chapter="미적분1")
     result = select_problems(session, sel)
@@ -73,3 +88,34 @@ def test_describe_problem_path(session, seeded):
     p = session.query(Problem).filter_by(problem_type=t1).first()
     path = describe_problem_path(p)
     assert path == "미적분1 > 미분 > 함수의 극한 > 극한값 구하기"
+
+
+def test_filters_by_question_kind(session, seeded_with_difficulty):
+    sel = WorksheetSelection(chapter="미적분1", question_kinds=["서술형"])
+    result = select_problems(session, sel)
+    assert len(result) == 1
+    assert result[0].question_kind == "서술형"
+
+
+def test_difficulty_ratio_allocates_proportionally(session, seeded_with_difficulty):
+    # 풀: 하=2, 중=3, 상=5. 요청 비율 하:2 중:5 상:3 -> 정확한 목표는
+    # 하=2,중=5,상=3 이지만 중은 3개뿐이라 2개 부족 -> 그 2개는 상의 여유분(5-3=2)에서 채워진다.
+    sel = WorksheetSelection(
+        chapter="미적분1",
+        question_kinds=["객관식"],
+        count=10,
+        difficulty_ratio={"하": 2, "중": 5, "상": 3},
+        seed=1,
+    )
+    result = select_problems(session, sel)
+    assert len(result) == 10
+    counts = {}
+    for p in result:
+        counts[p.difficulty_label] = counts.get(p.difficulty_label, 0) + 1
+    assert counts == {"하": 2, "중": 3, "상": 5}
+
+
+def test_difficulty_ratio_sum_matches_requested_count():
+    from worksheet_select import _allocate_ratio_counts
+    result = _allocate_ratio_counts(10, {"a": 1, "b": 1, "c": 1})
+    assert sum(result.values()) == 10
