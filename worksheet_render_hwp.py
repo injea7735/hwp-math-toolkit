@@ -113,7 +113,10 @@ def _insert_image(hwp, image_path: str, ascii_tmp_dir: Path) -> None:
     hwp.InsertPicture(str(ascii_copy), True, 0, False, False, 0, 0, 0)
 
 
-def _insert_problem(hwp, index: int, p: Problem, ascii_tmp_dir: Path, show_path: bool) -> None:
+def _insert_problem(
+    hwp, index: int, p: Problem, ascii_tmp_dir: Path, show_path: bool,
+    choice_order: list[int] | None = None,
+) -> None:
     _insert_text(hwp, f"{index}. ")
     if show_path:
         _insert_text(hwp, f"[{describe_problem_path(p)}]\n")
@@ -131,42 +134,17 @@ def _insert_problem(hwp, index: int, p: Problem, ascii_tmp_dir: Path, show_path:
             except (json.JSONDecodeError, TypeError):
                 choices = None
             if choices:
-                for i, c in enumerate(choices):
+                order = choice_order if choice_order is not None else list(range(len(choices)))
+                for i, orig_i in enumerate(order):
                     mark = _CIRCLED[i] if i < len(_CIRCLED) else str(i + 1)
                     _insert_text(hwp, f"{mark} ")
-                    _insert_mixed_text(hwp, strip_watermark_noise(c))
+                    _insert_mixed_text(hwp, strip_watermark_noise(choices[orig_i]))
                     _insert_text(hwp, "   ")
                 _insert_text(hwp, "\n")
     _insert_text(hwp, "\n")
 
 
-def save_worksheet_hwp(
-    problems: list[Problem], title: str, out_path: str, show_path: bool = False
-) -> None:
-    hwp = _get_hwp()
-    _SAFE_TMP_BASE.mkdir(parents=True, exist_ok=True)
-    ascii_tmp_dir = Path(tempfile.mkdtemp(prefix="worksheet_imgs_", dir=str(_SAFE_TMP_BASE)))
-    try:
-        hwp.Run("FileNew")
-        hwp.Run("MoveDocBegin")
-
-        act = hwp.HParameterSet.HInsertText
-        hwp.HAction.GetDefault("InsertText", act.HSet)
-        act.Text = f"{title}\n\n"
-        hwp.HAction.Execute("InsertText", act.HSet)
-
-        for i, p in enumerate(problems, start=1):
-            _insert_problem(hwp, i, p, ascii_tmp_dir, show_path)
-
-        _insert_text(hwp, "\n정답\n")
-        answer_line = "   ".join(f"{i}. {p.answer or '-'}" for i, p in enumerate(problems, start=1))
-        _insert_text(hwp, answer_line + "\n")
-
-        tmp_save_path = ascii_tmp_dir / "out.hwp"
-        hwp.SaveAs(str(tmp_save_path), "HWP")
-    finally:
-        hwp.Quit()
-
+def _finalize_save(hwp, ascii_tmp_dir: Path, tmp_save_path: Path, out_path: str) -> None:
     final_path = Path(out_path).resolve()
     final_path.parent.mkdir(parents=True, exist_ok=True)
     # hwp.Quit() 직후에도 잠깐 파일 핸들이 안 풀릴 때가 있어(HWP 프로세스가
@@ -183,3 +161,67 @@ def save_worksheet_hwp(
     if last_err is not None:
         raise last_err
     shutil.rmtree(ascii_tmp_dir, ignore_errors=True)
+
+
+def save_worksheet_hwp(
+    problems: list[Problem],
+    title: str,
+    out_path: str,
+    show_path: bool = False,
+    choice_orders: list[list[int] | None] | None = None,
+    display_answers: list[str | None] | None = None,
+    include_answer_key: bool = True,
+) -> None:
+    """choice_orders/display_answers를 주면 A형/B형처럼 보기 순서가 섞인
+    버전을 그대로 반영한다. include_answer_key=False면 정답 부분을 생략한다
+    (별도 정답지가 필요할 때 save_answer_key_hwp와 함께 쓴다)."""
+    hwp = _get_hwp()
+    _SAFE_TMP_BASE.mkdir(parents=True, exist_ok=True)
+    ascii_tmp_dir = Path(tempfile.mkdtemp(prefix="worksheet_imgs_", dir=str(_SAFE_TMP_BASE)))
+    try:
+        hwp.Run("FileNew")
+        hwp.Run("MoveDocBegin")
+
+        act = hwp.HParameterSet.HInsertText
+        hwp.HAction.GetDefault("InsertText", act.HSet)
+        act.Text = f"{title}\n\n"
+        hwp.HAction.Execute("InsertText", act.HSet)
+
+        for i, p in enumerate(problems, start=1):
+            order = choice_orders[i - 1] if choice_orders else None
+            _insert_problem(hwp, i, p, ascii_tmp_dir, show_path, order)
+
+        if include_answer_key:
+            answers = display_answers if display_answers is not None else [p.answer for p in problems]
+            _insert_text(hwp, "\n정답\n")
+            answer_line = "   ".join(f"{i}. {a or '-'}" for i, a in enumerate(answers, start=1))
+            _insert_text(hwp, answer_line + "\n")
+
+        tmp_save_path = ascii_tmp_dir / "out.hwp"
+        hwp.SaveAs(str(tmp_save_path), "HWP")
+    finally:
+        hwp.Quit()
+
+    _finalize_save(hwp, ascii_tmp_dir, tmp_save_path, out_path)
+
+
+def save_answer_key_hwp(
+    title: str, problems: list[Problem], out_path: str, display_answers: list[str | None] | None = None
+) -> None:
+    """정답만 담은 별도 .hwp(정답지)를 생성한다."""
+    answers = display_answers if display_answers is not None else [p.answer for p in problems]
+    hwp = _get_hwp()
+    _SAFE_TMP_BASE.mkdir(parents=True, exist_ok=True)
+    ascii_tmp_dir = Path(tempfile.mkdtemp(prefix="worksheet_answers_", dir=str(_SAFE_TMP_BASE)))
+    try:
+        hwp.Run("FileNew")
+        hwp.Run("MoveDocBegin")
+        _insert_text(hwp, f"{title} - 정답\n\n")
+        answer_line = "   ".join(f"{i}. {a or '-'}" for i, a in enumerate(answers, start=1))
+        _insert_text(hwp, answer_line + "\n")
+        tmp_save_path = ascii_tmp_dir / "out.hwp"
+        hwp.SaveAs(str(tmp_save_path), "HWP")
+    finally:
+        hwp.Quit()
+
+    _finalize_save(hwp, ascii_tmp_dir, tmp_save_path, out_path)

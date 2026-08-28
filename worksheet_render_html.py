@@ -20,7 +20,7 @@ def _img_data_uri(path: str) -> str | None:
     return f"data:image/{ext};base64,{b64}"
 
 
-def _problem_body_html(p: Problem) -> str:
+def _problem_body_html(p: Problem, choice_order: list[int] | None) -> str:
     parts = []
     if p.image_paths:
         for path in json.loads(p.image_paths):
@@ -36,9 +36,10 @@ def _problem_body_html(p: Problem) -> str:
             except (json.JSONDecodeError, TypeError):
                 choices = None
             if choices:
+                order = choice_order if choice_order is not None else list(range(len(choices)))
                 items = ''.join(
-                    f'<span class="choice">{_CIRCLED[i] if i < len(_CIRCLED) else i+1} {strip_watermark_noise(c)}</span>'
-                    for i, c in enumerate(choices)
+                    f'<span class="choice">{_CIRCLED[i] if i < len(_CIRCLED) else i+1} {strip_watermark_noise(choices[orig_i])}</span>'
+                    for i, orig_i in enumerate(order)
                 )
                 parts.append(f'<div class="choices">{items}</div>')
     return '\n'.join(parts)
@@ -71,33 +72,70 @@ window.MathJax = {{ tex: {{ inlineMath: [['$', '$']] }} }};
 <body>
 <h1>{title}</h1>
 {body}
-<div class="answer-key">
+{answer_section}
+</body>
+</html>
+"""
+
+_ANSWER_SECTION_TEMPLATE = """<div class="answer-key">
 <h2>정답</h2>
 <table>
 <tr>{answer_header}</tr>
 <tr>{answer_row}</tr>
 </table>
-</div>
-</body>
-</html>
-"""
+</div>"""
 
 
-def render_worksheet_html(problems: list[Problem], title: str, path_labels: list[str] | None = None) -> str:
-    """문제 목록을 자체완결 HTML 문자열로 렌더링한다 (파일 경로 이미지는 base64로 임베드)."""
+def _answer_section_html(problems: list[Problem], display_answers: list[str | None] | None) -> str:
+    header_cells = ''.join(f'<th>{i}</th>' for i in range(1, len(problems) + 1))
+    if display_answers is None:
+        display_answers = [p.answer for p in problems]
+    answer_cells = ''.join(f'<td>{a or "-"}</td>' for a in display_answers)
+    return _ANSWER_SECTION_TEMPLATE.format(answer_header=header_cells, answer_row=answer_cells)
+
+
+def render_worksheet_html(
+    problems: list[Problem],
+    title: str,
+    path_labels: list[str] | None = None,
+    choice_orders: list[list[int] | None] | None = None,
+    display_answers: list[str | None] | None = None,
+    include_answer_key: bool = True,
+) -> str:
+    """문제 목록을 자체완결 HTML 문자열로 렌더링한다 (파일 경로 이미지는 base64로 임베드).
+    choice_orders/display_answers를 주면 A형/B형처럼 보기 순서가 섞인 버전을 그대로 반영한다."""
     blocks = []
     for i, p in enumerate(problems, start=1):
         path_line = f'<div class="path">{path_labels[i-1]}</div>' if path_labels else ''
+        order = choice_orders[i - 1] if choice_orders else None
         blocks.append(
-            f'<div class="problem"><span class="num">{i}.</span>{path_line}{_problem_body_html(p)}</div>'
+            f'<div class="problem"><span class="num">{i}.</span>{path_line}{_problem_body_html(p, order)}</div>'
         )
-    header_cells = ''.join(f'<th>{i}</th>' for i in range(1, len(problems) + 1))
-    answer_cells = ''.join(f'<td>{p.answer or "-"}</td>' for p in problems)
-    return _PAGE_TEMPLATE.format(
-        title=title, body='\n'.join(blocks), answer_header=header_cells, answer_row=answer_cells
+    answer_section = _answer_section_html(problems, display_answers) if include_answer_key else ''
+    return _PAGE_TEMPLATE.format(title=title, body='\n'.join(blocks), answer_section=answer_section)
+
+
+def render_answer_key_html(title: str, problems: list[Problem], display_answers: list[str | None] | None = None) -> str:
+    """정답만 담은 별도 HTML(정답지)을 렌더링한다."""
+    body = f'<h1>{title} - 정답</h1>\n' + _answer_section_html(problems, display_answers)
+    return f'<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>{title} 정답</title></head><body>{body}</body></html>'
+
+
+def save_worksheet_html(
+    problems: list[Problem],
+    title: str,
+    out_path: str,
+    path_labels: list[str] | None = None,
+    choice_orders: list[list[int] | None] | None = None,
+    display_answers: list[str | None] | None = None,
+    include_answer_key: bool = True,
+) -> None:
+    html = render_worksheet_html(
+        problems, title, path_labels, choice_orders, display_answers, include_answer_key
     )
+    Path(out_path).write_text(html, encoding='utf-8')
 
 
-def save_worksheet_html(problems: list[Problem], title: str, out_path: str, path_labels: list[str] | None = None) -> None:
-    html = render_worksheet_html(problems, title, path_labels)
+def save_answer_key_html(title: str, problems: list[Problem], out_path: str, display_answers: list[str | None] | None = None) -> None:
+    html = render_answer_key_html(title, problems, display_answers)
     Path(out_path).write_text(html, encoding='utf-8')
