@@ -31,3 +31,17 @@ def test_strips_leading_to_artifact():
 def test_real_to_arrow_not_stripped_without_watermark():
     text = r"\lim_{x\to\infty}{\sqrt{3x-9}}"
     assert strip_watermark_noise(text) == text
+
+
+def test_strips_leading_20004_artifact():
+    # DB 전체 651건 중 34건에서 "to [[NGD:...]]" 바로 앞에 항상 동일한
+    # 숫자 "20004"가 붙어 나온다 - 서로 무관한 문제들에 우연히 같은 숫자가
+    # 등장할 리 없으므로 추출 파이프라인이 남긴 잔여 아티팩트로 보고 같이 벗긴다.
+    text = "점 $P 20004 to [[NGD:gtd340400]]$까지의 거리"
+    assert strip_watermark_noise(text) == "점 $P$까지의 거리"
+
+
+def test_other_numbers_before_to_are_not_stripped():
+    # "20004"가 아닌 다른 숫자는 실제 수식 내용일 수 있으니 건드리면 안 된다.
+    text = "$x 20005 to [[NGD:gtd340400]]$"
+    assert strip_watermark_noise(text) == "$x 20005$"
