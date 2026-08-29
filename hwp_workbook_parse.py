@@ -82,6 +82,13 @@ def _in_textbox(el: etree._Element) -> bool:
     return False
 
 
+def _in_endnote(el: etree._Element) -> bool:
+    for anc in el.iterancestors():
+        if anc.tag == 'EndNote':
+            return True
+    return False
+
+
 def extract_outline(path: str) -> WorkbookOutline:
     """유형 제목 목록 + 유형별 대략적인 문제 수를 추출한다."""
     root = _xml_root(path)
@@ -206,6 +213,20 @@ def extract_problems(path: str) -> list[Problem]:
     XML 트리를 훑으면서 EqEdit 자리가 나올 때마다 하나씩 꺼내 LaTeX로
     바꿔 그 자리에 $...$ 로 끼워 넣는다. 두 추출 방식 모두 같은 레코드
     스트림을 순서대로 훑으므로 EqEdit 등장 순서가 서로 맞아떨어진다.
+
+    **"정답" 뒤에 붙는 건 사실 답 기호 하나가 아니라 EndNote(각주) 전체다**
+    - 실제로 원본 파일을 열어 XML 트리를 직접 걸어보고 확인함: AutoNumbering
+    바로 뒤의 " 정답 "/"③" 같은 Text도, 그 뒤에 이어지는 여러 줄짜리 전체
+    풀이 과정(수식 포함)도 전부 `<EndNote>` 태그 아래에 들어 있다 - 인쇄/
+    화면에는 안 보이지만(각주라서) 문서 파일 안에는 그대로 남아 있는
+    "숨은 해설"이다. 기존 코드는 이 경계를 문단 끝(\\r) 하나로만 판단했는데,
+    풀이가 여러 문단(=여러 \\r)에 걸쳐 있다 보니 첫 \\r 이후의 나머지
+    풀이 내용이 in_answer_zone=False 상태에서 그대로 stem_parts로 흘러들어가
+    실제 문제 지문 앞에 풀이가 통째로 붙는 심각한 버그가 있었다(2026-08-29
+    발견 - 이미 들어간 883+690개 행 중 상당수가 이 상태로 저장되어 있었음,
+    별도로 재수입해서 복구함). 지금은 문단 끝이 아니라 `_in_endnote(el)`로
+    직접 판단한다 - EndNote를 벗어난 뒤에 나오는 Text/EqEdit만 진짜
+    stem_parts로 들어간다.
     """
     root = _xml_root(path)
     equations = iter(extract_equation_scripts(path))
@@ -313,11 +334,19 @@ def extract_problems(path: str) -> list[Problem]:
                 continue
 
             if tag == 'Text' and el.text:
-                (answer_parts if in_answer_zone else stem_parts).append(el.text)
+                if in_answer_zone:
+                    answer_parts.append(el.text)
+                elif not _in_endnote(el):
+                    stem_parts.append(el.text)
+                # else: 정답 각주(EndNote) 안에서 첫 문단 구분(\r) 이후로
+                # 이어지는 풀이 잔여 텍스트 - 버린다(아래 EndNote 설명 참고)
             elif tag == 'EqEdit':
                 latex = next_latex()
-                if latex:
-                    (answer_parts if in_answer_zone else stem_parts).append(f'${latex}$')
+                if in_answer_zone:
+                    if latex:
+                        answer_parts.append(f'${latex}$')
+                elif not _in_endnote(el) and latex:
+                    stem_parts.append(f'${latex}$')
 
         flush()
         return problems
