@@ -13,6 +13,7 @@ HWP 파일 안에서:
 """
 from __future__ import annotations
 
+import hashlib
 import io
 import re
 import struct
@@ -30,6 +31,16 @@ HWPTAG_CTRL_EQEDIT = 88
 
 _TYPE_NO_RE = re.compile(r'^\d{1,2}$')
 
+# "STEP 1/2/3" 난이도 배너는 본문 텍스트가 아니라 그림(BinData)으로 박혀
+#있다 - 같은 "내신고쟁이" 시리즈 안에서는 완전히 같은 이미지 파일이
+# 파일마다 다른 BinData 번호로 재사용되므로, 내용의 md5로 식별한다(직접
+# 여러 소단원 파일에서 md5가 동일함을 확인함).
+_STEP_TIER_HASHES = {
+    '09cc38465bc640d2b7b77a5430109280': 'STEP1',
+    '7da65629d04b9cbb5b6b6208e780a979': 'STEP2',
+    '5301bc21812743c11b4dcf251ba4400e': 'STEP3',
+}
+
 
 @dataclass
 class TypeSection:
@@ -45,6 +56,7 @@ class Problem:
     seq: int          # 유형 안에서 몇 번째 문제인지(1부터)
     answer: str        # "정답" 옆에 바로 나오는 값/기호
     stem: str          # 문제 본문. 수식은 $...$ 로 감싼 LaTeX로 들어간다.
+    tier: str | None = None  # 이 문제 앞에 마지막으로 나온 STEP 배너("STEP1"/"STEP2"/"STEP3")
 
 
 @dataclass
@@ -156,6 +168,34 @@ def extract_equation_scripts(path: str) -> list[str]:
     return scripts
 
 
+def _bindata_md5(ole: olefile.OleFileIO, bindata_id: int) -> str | None:
+    for ext in ('bmp', 'png', 'jpg', 'gif'):
+        name = f'BIN{bindata_id:04X}.{ext}'
+        if ole.exists(['BinData', name]):
+            raw = ole.openstream(['BinData', name]).read()
+            try:
+                data = zlib.decompress(raw, -15)
+            except zlib.error:
+                data = raw
+            return hashlib.md5(data).hexdigest()
+    return None
+
+
+def _step_tier_in(el: etree._Element, ole: olefile.OleFileIO, cache: dict) -> str | None:
+    """el(GShapeObjectControl) 안에 STEP 배너 그림이 있으면 그 등급을 반환한다."""
+    for pic in el.iter('PictureInfo'):
+        bindata_id = pic.get('bindata-id')
+        if bindata_id is None:
+            continue
+        bindata_id = int(bindata_id)
+        if bindata_id not in cache:
+            cache[bindata_id] = _bindata_md5(ole, bindata_id)
+        tier = _STEP_TIER_HASHES.get(cache[bindata_id])
+        if tier:
+            return tier
+    return None
+
+
 def extract_problems(path: str) -> list[Problem]:
     """유형별 문제 본문을 수식 포함해서 재구성한다.
 
@@ -169,6 +209,8 @@ def extract_problems(path: str) -> list[Problem]:
     """
     root = _xml_root(path)
     equations = iter(extract_equation_scripts(path))
+    ole = olefile.OleFileIO(path)
+    step_hash_cache: dict[int, str | None] = {}
 
     def next_latex() -> str:
         script = next(equations, None)
@@ -182,14 +224,21 @@ def extract_problems(path: str) -> list[Problem]:
     problems: list[Problem] = []
     seen_nos: set[str] = set()
     current_type: tuple[str, str] | None = None  # (no, title)
+    current_tier: str | None = None
     type_seq = 0
 
     cur_no: str | None = None
+    problem_tier: str | None = None  # 지금 진행 중인 문제가 시작될 때의 tier 스냅샷
     in_answer_zone = False
     answer_parts: list[str] = []
     stem_parts: list[str] = []
 
     def flush():
+        # current_tier를 flush 시점에 바로 읽으면 안 된다 - 문제 본문이 끝나고
+        # 다음 AutoNumbering이 나오기 전에 STEP 배너를 먼저 만나면(예: 소단원
+        # 마지막 문제 뒤에 다음 섹션의 빈 STEP 배너가 곧바로 이어지는 경우)
+        # 방금 끝난 문제가 아직 시작도 안 한 다음 tier로 잘못 태깅된다.
+        # 그래서 문제가 "시작될 때" 캡처해 둔 problem_tier를 대신 쓴다.
         nonlocal cur_no, answer_parts, stem_parts
         if cur_no is not None and current_type is not None:
             problems.append(Problem(
@@ -198,59 +247,67 @@ def extract_problems(path: str) -> list[Problem]:
                 seq=type_seq,
                 answer=''.join(answer_parts).strip(),
                 stem=''.join(stem_parts).strip(),
+                tier=problem_tier,
             ))
         cur_no = None
         answer_parts = []
         stem_parts = []
 
-    for el in root.iter():
-        tag = el.tag
-        if tag == 'GShapeObjectControl':
-            runs = [t.text for t in el.iter('Text') if t.text]
-            for t in el.iter('EqEdit'):
-                next_latex()  # 텍스트박스 안 수식도 큐에서 소비만 하고 버린다
-            if not runs:
-                continue
-            last = runs[-1].strip()
-            if _TYPE_NO_RE.match(last):
-                title = ''.join(runs[:-1]).strip()
-                if title and any('가' <= ch <= '힣' for ch in title):
-                    if last in seen_nos:
+    try:
+        for el in root.iter():
+            tag = el.tag
+            if tag == 'GShapeObjectControl':
+                tier = _step_tier_in(el, ole, step_hash_cache)
+                if tier:
+                    current_tier = tier
+                runs = [t.text for t in el.iter('Text') if t.text]
+                for t in el.iter('EqEdit'):
+                    next_latex()  # 텍스트박스 안 수식도 큐에서 소비만 하고 버린다
+                if not runs:
+                    continue
+                last = runs[-1].strip()
+                if _TYPE_NO_RE.match(last):
+                    title = ''.join(runs[:-1]).strip()
+                    if title and any('가' <= ch <= '힣' for ch in title):
+                        if last in seen_nos:
+                            flush()
+                            return problems  # 정답/해설 파트 시작 -> 종료
+                        seen_nos.add(last)
                         flush()
-                        return problems  # 정답/해설 파트 시작 -> 종료
-                    seen_nos.add(last)
-                    flush()
-                    current_type = (last, title)
-                    type_seq = 0
-            continue
+                        current_type = (last, title)
+                        type_seq = 0
+                continue
 
-        if _in_textbox(el):
-            continue
+            if _in_textbox(el):
+                continue
 
-        if tag == 'AutoNumbering':
-            flush()
-            type_seq += 1
-            cur_no = el.get('number') or str(type_seq)
-            in_answer_zone = True
-            continue
+            if tag == 'AutoNumbering':
+                flush()
+                type_seq += 1
+                cur_no = el.get('number') or str(type_seq)
+                problem_tier = current_tier
+                in_answer_zone = True
+                continue
 
-        if tag == 'ControlChar' and el.get('name') == 'PARAGRAPH_BREAK':
-            if in_answer_zone:
-                in_answer_zone = False
-            continue
+            if tag == 'ControlChar' and el.get('name') == 'PARAGRAPH_BREAK':
+                if in_answer_zone:
+                    in_answer_zone = False
+                continue
 
-        if cur_no is None:
-            continue
+            if cur_no is None:
+                continue
 
-        if tag == 'Text' and el.text:
-            (answer_parts if in_answer_zone else stem_parts).append(el.text)
-        elif tag == 'EqEdit':
-            latex = next_latex()
-            if latex:
-                (answer_parts if in_answer_zone else stem_parts).append(f'${latex}$')
+            if tag == 'Text' and el.text:
+                (answer_parts if in_answer_zone else stem_parts).append(el.text)
+            elif tag == 'EqEdit':
+                latex = next_latex()
+                if latex:
+                    (answer_parts if in_answer_zone else stem_parts).append(f'${latex}$')
 
-    flush()
-    return problems
+        flush()
+        return problems
+    finally:
+        ole.close()
 
 
 if __name__ == '__main__':
