@@ -62,6 +62,7 @@ def main() -> None:
     parser.add_argument("--no-shuffle-problem-order", action="store_true", help="--form 사용 시 문제 순서는 안 섞고 보기 순서만 섞는다")
     parser.add_argument("--no-shuffle-choices", action="store_true", help="--form 사용 시 보기 순서는 안 섞고 문제 순서만 섞는다")
     parser.add_argument("--separate-answer-key", action="store_true", help="정답을 시험지에 안 붙이고 별도 파일(_answers)로 생성한다")
+    parser.add_argument("--with-explanation", action="store_true", help="정답 옆에 해설(풀이)도 같이 넣는다 (해설 없는 문제는 조용히 건너뜀)")
 
     args = parser.parse_args()
 
@@ -114,11 +115,14 @@ def main() -> None:
                 save_worksheet_html(
                     variant.problems, args.title, html_path, path_labels,
                     variant.choice_orders, variant.display_answers, include_answer_key,
+                    args.with_explanation,
                 )
                 print(f"HTML 저장: {html_path} ({len(variant.problems)}문제)")
                 if args.separate_answer_key:
                     ans_path = f"{out_prefix}_answers.html"
-                    save_answer_key_html(args.title, variant.problems, ans_path, variant.display_answers)
+                    save_answer_key_html(
+                        args.title, variant.problems, ans_path, variant.display_answers, args.with_explanation,
+                    )
                     print(f"정답지 저장: {ans_path}")
 
             if not args.html_only:
@@ -126,12 +130,14 @@ def main() -> None:
                 save_worksheet_hwp(
                     variant.problems, args.title, hwp_path, show_path=args.show_path,
                     choice_orders=variant.choice_orders, display_answers=variant.display_answers,
-                    include_answer_key=include_answer_key,
+                    include_answer_key=include_answer_key, include_explanations=args.with_explanation,
                 )
                 print(f"HWP 저장: {hwp_path} ({len(variant.problems)}문제)")
                 if args.separate_answer_key:
                     ans_path = f"{out_prefix}_answers.hwp"
-                    save_answer_key_hwp(args.title, variant.problems, ans_path, variant.display_answers)
+                    save_answer_key_hwp(
+                        args.title, variant.problems, ans_path, variant.display_answers, args.with_explanation,
+                    )
                     print(f"정답지 저장: {ans_path}")
 
 
