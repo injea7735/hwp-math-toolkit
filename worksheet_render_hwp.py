@@ -52,9 +52,15 @@ def _get_hwp():
 def _insert_text(hwp, text: str) -> None:
     if not text:
         return
+    # HWP의 InsertText.Text는 줄바꿈으로 '\n'이 아니라 '\r'을 요구한다 -
+    # 직접 확인함: 'AAA\nBBB'를 넣으면 "AAABBB"로 그냥 이어 붙고, 'AAA\rBBB'를
+    # 넣으면 실제로 두 줄로 나뉜다. 지금까지 이 프로젝트 전역에서 '\n'을
+    # 써 왔는데(조건박스의 테이블 셀 안 문제와는 별개로, 본문에서도 항상
+    # 이랬다) 실제로는 한 번도 제대로 줄바꿈이 된 적이 없었다는 뜻이라
+    # 이 함수 하나만 고치면 전체가 같이 고쳐진다.
     act = hwp.HParameterSet.HInsertText
     hwp.HAction.GetDefault("InsertText", act.HSet)
-    act.Text = text
+    act.Text = text.replace("\r\n", "\n").replace("\n", "\r")
     hwp.HAction.Execute("InsertText", act.HSet)
 
 
@@ -198,6 +204,19 @@ def _finalize_save(hwp, ascii_tmp_dir: Path, tmp_save_path: Path, out_path: str)
     shutil.rmtree(ascii_tmp_dir, ignore_errors=True)
 
 
+def _insert_explanation_section(hwp, problems: list[Problem]) -> None:
+    """해설이 있는 문제만 번호와 함께 나열한다 (없는 문제는 조용히 건너뜀)."""
+    if not any(p.explanation for p in problems):
+        return
+    _insert_text(hwp, "\n해설\n")
+    for i, p in enumerate(problems, start=1):
+        if not p.explanation:
+            continue
+        _insert_text(hwp, f"{i}. ")
+        _insert_mixed_text(hwp, strip_watermark_noise(p.explanation))
+        _insert_text(hwp, "\n")
+
+
 def save_worksheet_hwp(
     problems: list[Problem],
     title: str,
@@ -206,6 +225,7 @@ def save_worksheet_hwp(
     choice_orders: list[list[int] | None] | None = None,
     display_answers: list[str | None] | None = None,
     include_answer_key: bool = True,
+    include_explanations: bool = False,
 ) -> None:
     """choice_orders/display_answers를 주면 A형/B형처럼 보기 순서가 섞인
     버전을 그대로 반영한다. include_answer_key=False면 정답 부분을 생략한다
@@ -231,6 +251,8 @@ def save_worksheet_hwp(
             _insert_text(hwp, "\n정답\n")
             answer_line = "   ".join(f"{i}. {a or '-'}" for i, a in enumerate(answers, start=1))
             _insert_text(hwp, answer_line + "\n")
+            if include_explanations:
+                _insert_explanation_section(hwp, problems)
 
         tmp_save_path = ascii_tmp_dir / "out.hwp"
         hwp.SaveAs(str(tmp_save_path), "HWP")
@@ -241,7 +263,11 @@ def save_worksheet_hwp(
 
 
 def save_answer_key_hwp(
-    title: str, problems: list[Problem], out_path: str, display_answers: list[str | None] | None = None
+    title: str,
+    problems: list[Problem],
+    out_path: str,
+    display_answers: list[str | None] | None = None,
+    include_explanations: bool = False,
 ) -> None:
     """정답만 담은 별도 .hwp(정답지)를 생성한다."""
     answers = display_answers if display_answers is not None else [p.answer for p in problems]
@@ -254,6 +280,8 @@ def save_answer_key_hwp(
         _insert_text(hwp, f"{title} - 정답\n\n")
         answer_line = "   ".join(f"{i}. {a or '-'}" for i, a in enumerate(answers, start=1))
         _insert_text(hwp, answer_line + "\n")
+        if include_explanations:
+            _insert_explanation_section(hwp, problems)
         tmp_save_path = ascii_tmp_dir / "out.hwp"
         hwp.SaveAs(str(tmp_save_path), "HWP")
     finally:
