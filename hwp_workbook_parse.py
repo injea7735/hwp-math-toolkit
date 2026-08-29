@@ -258,7 +258,15 @@ def extract_problems(path: str) -> list[Problem]:
             tag = el.tag
             if tag == 'GShapeObjectControl':
                 tier = _step_tier_in(el, ole, step_hash_cache)
-                if tier:
+                if tier and tier != current_tier:
+                    # 새 STEP 섹션 시작 - 이 시리즈는 STEP마다 같은 유형 제목
+                    # (01, 02, ...)을 그대로 재사용하므로, seen_nos를 여기서
+                    # 리셋 안 하면 STEP2의 첫 유형 제목이 STEP1의 반복으로
+                    # 오인되어 "정답 섹션 시작"으로 잘못 종료된다. STEP 배너가
+                    # 없는 책(seen_nos가 애초에 안 쓰이는 경우는 없지만, tier가
+                    # 계속 None이면 이 분기 자체가 안 걸리므로 기존 동작은
+                    # 그대로 보존된다.
+                    seen_nos.clear()
                     current_tier = tier
                 runs = [t.text for t in el.iter('Text') if t.text]
                 for t in el.iter('EqEdit'):
@@ -285,7 +293,14 @@ def extract_problems(path: str) -> list[Problem]:
                 flush()
                 type_seq += 1
                 cur_no = el.get('number') or str(type_seq)
-                problem_tier = current_tier
+                # 이 시리즈의 모든 소단원 파일은 항상 STEP1 문제로 시작한다
+                # (확인됨) - 그런데 파일 한 개에서 STEP1 배너 그림이 다른
+                # 파일들과 다른 바이트로 인코딩되어 있어(같은 "STEP1" 도안인데
+                # 해시가 안 맞음) 배너 자체가 감지되지 않는 경우를 발견했다.
+                # 아직 어떤 STEP 배너도 못 만난 상태에서 문제가 시작되면
+                # STEP1으로 본다 - 임의 추측이 아니라 이 시리즈 전체에서
+                # 확인된 문서 구조를 따르는 것이다.
+                problem_tier = current_tier or 'STEP1'
                 in_answer_zone = True
                 continue
 
