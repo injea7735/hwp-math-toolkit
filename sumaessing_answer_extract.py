@@ -28,6 +28,39 @@ def extract_answers(pdf_path: str) -> dict[str, str]:
     return answers
 
 
+def extract_explanations(pdf_path: str) -> dict[str, str]:
+    """"번호+정답" 줄부터 다음 그런 줄이 나오기 전까지의 전체 텍스트를
+    문제번호->풀이 로 모은다. 수식은 이 책도 커스텀 폰트 글리프라 깨져서
+    나오지만(pdf_answer_extract.extract_explanations와 같은 사정), 한글
+    풀이 서술은 그대로 읽힌다."""
+    doc = fitz.open(pdf_path)
+    explanations: dict[str, str] = {}
+
+    pending_number: str | None = None
+    block_lines: list[str] = []
+
+    def flush():
+        if pending_number is not None:
+            block = '\n'.join(ln for ln in block_lines if ln)
+            if block:
+                explanations[pending_number] = block
+
+    for pno in range(doc.page_count):
+        for line in doc[pno].get_text().split('\n'):
+            stripped = line.strip()
+            m = _NUMBER_ANSWER_LINE.match(stripped)
+            if m:
+                flush()
+                pending_number = m.group(1)
+                block_lines = [m.group(2).strip()]
+            elif pending_number is not None and stripped:
+                block_lines.append(stripped)
+    flush()
+
+    doc.close()
+    return explanations
+
+
 if __name__ == '__main__':
     import sys
     path = sys.argv[1]

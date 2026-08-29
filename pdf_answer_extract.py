@@ -38,6 +38,48 @@ def _strip_leading_noise(text: str) -> str:
     return text[i:]
 
 
+def extract_explanations(pdf_path: str) -> dict[str, str]:
+    """번호 다음 줄(정답)부터 다음 문제 번호가 나오기 전까지의 전체 텍스트를
+    문제번호->풀이 로 모은다. 이 PDF는 문제 PDF와 똑같이 수식이 커스텀 폰트
+    글리프로 그려져 있어(stem_latex와 같은 사정 - PDF_PROBLEM_EXTRACT의
+    docstring 참고) 수식 부분은 깨져서 나온다. 그래도 한글 서술(이때/이므로/
+    따라서 등 풀이 흐름)은 그대로 읽혀서 최선의 결과로 저장해 둔다 - 이
+    과목군의 stem_latex를 다루는 것과 같은 타협이다."""
+    doc = fitz.open(pdf_path)
+    explanations: dict[str, str] = {}
+
+    for pno in range(doc.page_count):
+        lines = doc[pno].get_text().split('\n')
+        i = 0
+        while i < len(lines):
+            stripped = lines[i].strip()
+            if not _NUMBER_LINE.match(stripped):
+                i += 1
+                continue
+            number = stripped[:3]
+
+            j = i + 1
+            while j < len(lines) and not lines[j].strip():
+                j += 1
+            if j >= len(lines):
+                break
+
+            k = j
+            while k < len(lines) and not _NUMBER_LINE.match(lines[k].strip()):
+                k += 1
+
+            block_lines = [_strip_leading_noise(lines[j]).strip()] + [
+                ln.strip() for ln in lines[j + 1:k] if ln.strip()
+            ]
+            block = '\n'.join(ln for ln in block_lines if ln)
+            if block:
+                explanations[number] = block
+            i = k
+
+    doc.close()
+    return explanations
+
+
 def extract_answers(pdf_path: str) -> dict[str, str]:
     doc = fitz.open(pdf_path)
     answers: dict[str, str] = {}

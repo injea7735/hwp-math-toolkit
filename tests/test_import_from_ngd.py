@@ -63,6 +63,7 @@ def test_import_creates_placeholder_taxonomy_and_problems(ngd_db, tmp_path):
 
         objective = session.query(Problem).filter_by(ngd_problem_id=1).one()
         assert objective.stem_latex == r"$\lim_{x\to\infty}{x}$"  # -> 가 \to 로 치환됨
+        assert objective.explanation == "[정답] ①"
         assert objective.question_kind == "객관식"
         assert objective.source.school == "원주여고"
         assert objective.image_paths is None
