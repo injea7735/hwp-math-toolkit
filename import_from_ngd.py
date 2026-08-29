@@ -106,6 +106,7 @@ def import_from_ngd(ngd_db_path: Path, target_db_url: str) -> int:
                 source=source,
                 stem_latex=_fix_latex(row["body"]) or "",
                 answer=row["answer"],
+                explanation=_fix_latex(row["explanation"]),
                 question_kind=row["qtype"] or "객관식",
                 difficulty_label=row["difficulty"],
                 original_file_path=ngd_exam["source_path"] if ngd_exam is not None else None,

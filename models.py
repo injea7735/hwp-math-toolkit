@@ -150,6 +150,7 @@ class Problem(Base):
     choices_latex: Mapped[str | None] = mapped_column(Text, nullable=True)  # 객관식 보기 (JSON 문자열 또는 구분자로 저장)
     answer: Mapped[str | None] = mapped_column(String(200), nullable=True)  # 원문자 또는 단답형 값(LaTeX)
     question_kind: Mapped[str] = mapped_column(String(20), default="객관식")  # 객관식 / 서술형 / 단답형
+    explanation: Mapped[str | None] = mapped_column(Text, nullable=True)  # 풀이/해설 (LaTeX 수식 포함, 출처에 없으면 None)
 
     # 난이도: 숫자 점수 + 정성 라벨 이중 구조 (수학비서식)
     difficulty_score: Mapped[float | None] = mapped_column(Float, nullable=True)   # 예: 4, 5, 6
