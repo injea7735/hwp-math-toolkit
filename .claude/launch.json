@@ -6,6 +6,12 @@
       "runtimeExecutable": "python",
       "runtimeArgs": ["review_app.py"],
       "port": 5057
+    },
+    {
+      "name": "worksheet-app",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["worksheet_app.py"],
+      "port": 5058
     }
   ]
 }
