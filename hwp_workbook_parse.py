@@ -330,6 +330,20 @@ def extract_problems(path: str) -> list[Problem]:
                     in_answer_zone = False
                 continue
 
+            if tag == 'EqEdit':
+                # cur_no가 None이어도 큐는 반드시 소비해야 한다 - 여기서 건너뛰면
+                # extract_equation_scripts()의 원본 스트림 순서와 어긋나서
+                # 이 파일의 나머지 모든 수식이 한 칸씩 밀려버린다.
+                latex = next_latex()
+                if cur_no is None:
+                    continue
+                if in_answer_zone:
+                    if latex:
+                        answer_parts.append(f'${latex}$')
+                elif not _in_endnote(el) and latex:
+                    stem_parts.append(f'${latex}$')
+                continue
+
             if cur_no is None:
                 continue
 
@@ -340,13 +354,7 @@ def extract_problems(path: str) -> list[Problem]:
                     stem_parts.append(el.text)
                 # else: 정답 각주(EndNote) 안에서 첫 문단 구분(\r) 이후로
                 # 이어지는 풀이 잔여 텍스트 - 버린다(아래 EndNote 설명 참고)
-            elif tag == 'EqEdit':
-                latex = next_latex()
-                if in_answer_zone:
-                    if latex:
-                        answer_parts.append(f'${latex}$')
-                elif not _in_endnote(el) and latex:
-                    stem_parts.append(f'${latex}$')
+                continue
 
         flush()
         return problems
